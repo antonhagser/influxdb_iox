@@ -1000,6 +1000,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "compactor_scheduler"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "data_types",
+ "generated_types",
+ "tonic",
+]
+
+[[package]]
 name = "compactor_test_utils"
 version = "0.1.0"
 dependencies = [
@@ -2457,6 +2467,7 @@ dependencies = [
  "clap_blocks",
  "comfy-table 7.0.0",
  "compactor",
+ "compactor_scheduler",
  "console-subscriber",
  "data_types",
  "datafusion",
