@@ -120,7 +120,6 @@ impl TestSetupBuilder<false> {
             .with_invariant_check(Arc::clone(&invariant_check) as _);
 
         let config = Config {
-            compaction_type: Default::default(),
             metric_registry: catalog.metric_registry(),
             catalog: catalog.catalog(),
             parquet_store_real: catalog.parquet_store.clone(),
