@@ -973,6 +973,7 @@ dependencies = [
  "async-trait",
  "backoff",
  "bytes",
+ "compactor_scheduler",
  "compactor_test_utils",
  "data_types",
  "datafusion",
@@ -1004,8 +1005,10 @@ name = "compactor_scheduler"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "clap_blocks",
  "data_types",
  "generated_types",
+ "iox_catalog",
  "tonic",
 ]
 
@@ -1016,6 +1019,7 @@ dependencies = [
  "async-trait",
  "backoff",
  "compactor",
+ "compactor_scheduler",
  "data_types",
  "datafusion",
  "datafusion_util",
@@ -2981,6 +2985,7 @@ dependencies = [
  "backoff",
  "clap_blocks",
  "compactor",
+ "compactor_scheduler",
  "data_types",
  "hyper",
  "iox_catalog",

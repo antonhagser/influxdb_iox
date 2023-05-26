@@ -42,6 +42,7 @@ use compactor::{
     config::{Config, PartitionsSourceConfig},
     hardcoded_components, Components, PanicDataFusionPlanner, PartitionInfo,
 };
+use compactor_scheduler::LocalScheduler;
 use data_types::{ColumnType, CompactionLevel, ParquetFile, TableId};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion_util::config::register_iox_object_store;
@@ -122,6 +123,7 @@ impl TestSetupBuilder<false> {
         let config = Config {
             metric_registry: catalog.metric_registry(),
             catalog: catalog.catalog(),
+            scheduler: Arc::new(LocalScheduler::default()),
             parquet_store_real: catalog.parquet_store.clone(),
             parquet_store_scratchpad: ParquetStorage::new(
                 Arc::new(object_store::memory::InMemory::new()),

@@ -23,3 +23,27 @@ pub use local_scheduler::LocalScheduler;
 mod remote_scheduler;
 mod scheduler;
 pub use scheduler::*;
+
+use std::sync::Arc;
+
+use clap_blocks::compactor_scheduler::{CompactorSchedulerConfig, CompactorSchedulerType};
+use iox_catalog::interface::Catalog;
+
+use crate::remote_scheduler::RemoteScheduler;
+
+/// Instantiate a compaction scheduler service
+pub async fn create_compactor_scheduler_service(
+    scheduler_config: CompactorSchedulerConfig,
+    _catalog: Arc<dyn Catalog>,
+) -> Arc<dyn Scheduler> {
+    match scheduler_config.compactor_scheduler_type {
+        CompactorSchedulerType::Local => Arc::new(LocalScheduler::default()),
+        CompactorSchedulerType::Remote => {
+            let remote_scheduler = Arc::new(RemoteScheduler::new());
+            match remote_scheduler.connect().await {
+                Ok(_) => remote_scheduler,
+                Err(_) => panic!("remote compactor scheduler failed to connect"),
+            }
+        }
+    }
+}

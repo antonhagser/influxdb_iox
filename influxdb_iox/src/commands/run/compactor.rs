@@ -3,10 +3,12 @@
 use super::main;
 use crate::process_info::setup_metric_registry;
 use clap_blocks::{
-    catalog_dsn::CatalogDsnConfig, compactor::CompactorConfig, object_store::make_object_store,
+    catalog_dsn::CatalogDsnConfig, compactor::CompactorConfig,
+    compactor_scheduler::CompactorSchedulerConfig, object_store::make_object_store,
     run_config::RunConfig,
 };
 use compactor::object_store::metrics::MetricsStore;
+use compactor_scheduler::create_compactor_scheduler_service;
 use iox_query::exec::{Executor, ExecutorConfig};
 use iox_time::{SystemProvider, TimeProvider};
 use ioxd_common::{
@@ -64,6 +66,9 @@ pub struct Config {
 
     #[clap(flatten)]
     pub(crate) compactor_config: CompactorConfig,
+
+    #[clap(flatten)]
+    compactor_scheduler_config: CompactorSchedulerConfig,
 }
 
 pub async fn command(config: Config) -> Result<(), Error> {
@@ -75,6 +80,10 @@ pub async fn command(config: Config) -> Result<(), Error> {
         .catalog_dsn
         .get_catalog("compactor", Arc::clone(&metric_registry))
         .await?;
+
+    let scheduler =
+        create_compactor_scheduler_service(config.compactor_scheduler_config, Arc::clone(&catalog))
+            .await;
 
     let object_store = make_object_store(config.run_config.object_store_config())
         .map_err(Error::ObjectStoreParsing)?;
@@ -121,6 +130,7 @@ pub async fn command(config: Config) -> Result<(), Error> {
         &common_state,
         Arc::clone(&metric_registry),
         catalog,
+        scheduler,
         parquet_store_real,
         parquet_store_scratchpad,
         exec,
