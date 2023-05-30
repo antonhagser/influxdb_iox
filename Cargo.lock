@@ -991,7 +991,6 @@ dependencies = [
  "predicate",
  "rand",
  "schema",
- "sharder",
  "test_helpers",
  "tokio",
  "tokio-util",
@@ -1005,10 +1004,16 @@ name = "compactor_scheduler"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "backoff",
  "clap_blocks",
  "data_types",
  "generated_types",
  "iox_catalog",
+ "iox_tests",
+ "iox_time",
+ "observability_deps",
+ "sharder",
+ "tokio",
  "tonic",
 ]
 
@@ -2986,7 +2991,6 @@ dependencies = [
  "clap_blocks",
  "compactor",
  "compactor_scheduler",
- "data_types",
  "hyper",
  "iox_catalog",
  "iox_query",

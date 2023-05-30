@@ -5,7 +5,10 @@ use async_trait::async_trait;
 use generated_types::influxdata::iox::compactor_scheduler::v1::*;
 use tonic::{transport::Channel, Response, Status};
 
-use crate::scheduler::{CompactionJob, Scheduler};
+use crate::{
+    scheduler::{CompactionJob, Scheduler},
+    temp::{PartitionsSourceConfig, ShardConfig},
+};
 
 /// Implementation of the [`Scheduler`] for remote coordinated scheduling.
 #[derive(Debug)]
@@ -28,7 +31,11 @@ impl RemoteScheduler {
 
 #[async_trait]
 impl Scheduler for RemoteScheduler {
-    async fn get_job(&self) -> Vec<CompactionJob> {
+    async fn get_job(
+        &self,
+        _: &PartitionsSourceConfig,
+        _: &Option<ShardConfig>,
+    ) -> Vec<CompactionJob> {
         let mut client = self.client.clone();
         let response: Result<Response<GetJobResponse>, Status> =
             client.get_job(GetJobRequest {}).await;

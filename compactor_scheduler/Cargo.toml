@@ -7,10 +7,16 @@ license.workspace = true
 
 [dependencies]
 async-trait = "0.1.68"
+backoff = { path = "../backoff" }
 clap_blocks = { path = "../clap_blocks" }
 data_types = { path = "../data_types" }
 generated_types = { version = "0.1.0", path = "../generated_types" }
 iox_catalog = { path = "../iox_catalog" }
+iox_time = { path = "../iox_time" }
+observability_deps = { path = "../observability_deps" }
+sharder = { path = "../sharder" }
 tonic = { workspace = true }
 
 [dev-dependencies]
+iox_tests = { path = "../iox_tests" }
+tokio = { version = "1.28", features = ["macros", "net", "parking_lot", "rt-multi-thread", "signal", "sync", "time"] }

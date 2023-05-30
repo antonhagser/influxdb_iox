@@ -26,6 +26,7 @@ pub use scheduler::*;
 
 use std::sync::Arc;
 
+use backoff::BackoffConfig;
 use clap_blocks::compactor_scheduler::{CompactorSchedulerConfig, CompactorSchedulerType};
 use iox_catalog::interface::Catalog;
 
@@ -34,10 +35,12 @@ use crate::remote_scheduler::RemoteScheduler;
 /// Instantiate a compaction scheduler service
 pub async fn create_compactor_scheduler_service(
     scheduler_config: CompactorSchedulerConfig,
-    _catalog: Arc<dyn Catalog>,
+    catalog: Arc<dyn Catalog>,
 ) -> Arc<dyn Scheduler> {
     match scheduler_config.compactor_scheduler_type {
-        CompactorSchedulerType::Local => Arc::new(LocalScheduler::default()),
+        CompactorSchedulerType::Local => {
+            Arc::new(LocalScheduler::new(catalog, BackoffConfig::default(), None))
+        }
         CompactorSchedulerType::Remote => {
             let remote_scheduler = Arc::new(RemoteScheduler::new());
             match remote_scheduler.connect().await {
@@ -47,3 +50,8 @@ pub async fn create_compactor_scheduler_service(
         }
     }
 }
+
+// temporary mod, for this commit only.
+// code still being consumed in the compactor, by direct function call.
+// TODO: move into LocalScheduler, which is used by the grpc service.
+pub mod temp;
