@@ -1333,6 +1333,7 @@ name = "data_types"
 version = "0.1.0"
 dependencies = [
  "assert_matches",
+ "async-trait",
  "chrono",
  "croaring",
  "generated_types",
@@ -1348,6 +1349,7 @@ dependencies = [
  "sqlx",
  "test_helpers",
  "thiserror",
+ "tokio",
  "uuid",
  "workspace-hack",
 ]
