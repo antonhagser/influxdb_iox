@@ -30,7 +30,7 @@ use backoff::BackoffConfig;
 use clap_blocks::compactor_scheduler::{CompactorSchedulerConfig, CompactorSchedulerType};
 use iox_catalog::interface::Catalog;
 
-use crate::remote_scheduler::RemoteScheduler;
+use crate::{local_scheduler::shard_config::ShardConfig, remote_scheduler::RemoteScheduler};
 
 /// Instantiate a compaction scheduler service
 pub async fn create_compactor_scheduler_service(
@@ -39,7 +39,13 @@ pub async fn create_compactor_scheduler_service(
 ) -> Arc<dyn Scheduler> {
     match scheduler_config.compactor_scheduler_type {
         CompactorSchedulerType::Local => {
-            Arc::new(LocalScheduler::new(catalog, BackoffConfig::default(), None))
+            let shard_config = ShardConfig::from_config(scheduler_config.shard_config);
+            Arc::new(LocalScheduler::new(
+                catalog,
+                BackoffConfig::default(),
+                None,
+                shard_config,
+            ))
         }
         CompactorSchedulerType::Remote => {
             let remote_scheduler = Arc::new(RemoteScheduler::new());

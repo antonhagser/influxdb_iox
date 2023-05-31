@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use data_types::PartitionId;
 use generated_types::influxdata::iox::compactor_scheduler::v1::{self as proto};
 
-use crate::temp::{PartitionsSourceConfig, ShardConfig};
+use crate::temp::PartitionsSourceConfig;
 
 /// Job assignment for a given partition.
 #[derive(Debug)]
@@ -32,9 +32,5 @@ impl From<proto::CompactionJob> for CompactionJob {
 #[async_trait]
 pub trait Scheduler: Send + Sync + Debug + Display {
     /// Get partitions to be compacted.
-    async fn get_job(
-        &self,
-        _: &PartitionsSourceConfig,
-        _: &Option<ShardConfig>,
-    ) -> Vec<CompactionJob>;
+    async fn get_job(&self, _: &PartitionsSourceConfig) -> Vec<CompactionJob>;
 }

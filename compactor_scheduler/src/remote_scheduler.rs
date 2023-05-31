@@ -7,7 +7,7 @@ use tonic::{transport::Channel, Response, Status};
 
 use crate::{
     scheduler::{CompactionJob, Scheduler},
-    temp::{PartitionsSourceConfig, ShardConfig},
+    temp::PartitionsSourceConfig,
 };
 
 /// Implementation of the [`Scheduler`] for remote coordinated scheduling.
@@ -31,11 +31,7 @@ impl RemoteScheduler {
 
 #[async_trait]
 impl Scheduler for RemoteScheduler {
-    async fn get_job(
-        &self,
-        _: &PartitionsSourceConfig,
-        _: &Option<ShardConfig>,
-    ) -> Vec<CompactionJob> {
+    async fn get_job(&self, _: &PartitionsSourceConfig) -> Vec<CompactionJob> {
         let mut client = self.client.clone();
         let response: Result<Response<GetJobResponse>, Status> =
             client.get_job(GetJobRequest {}).await;
