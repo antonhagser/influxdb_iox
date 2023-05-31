@@ -245,7 +245,7 @@ pub static PARTITION_BY_DAY_PROTO: Lazy<Arc<proto::PartitionTemplate>> = Lazy::n
 /// A partition template specified by a namespace record.
 #[derive(Debug, PartialEq, Clone, Default, sqlx::Type)]
 #[sqlx(transparent)]
-pub struct NamespacePartitionTemplateOverride(Option<serialization::Wrapper>);
+pub struct NamespacePartitionTemplateOverride(pub Option<serialization::Wrapper>);
 
 impl TryFrom<proto::PartitionTemplate> for NamespacePartitionTemplateOverride {
     type Error = ValidationError;
@@ -260,7 +260,7 @@ impl TryFrom<proto::PartitionTemplate> for NamespacePartitionTemplateOverride {
 /// A partition template specified by a table record.
 #[derive(Debug, PartialEq, Eq, Clone, Default, sqlx::Type)]
 #[sqlx(transparent)]
-pub struct TablePartitionTemplateOverride(Option<serialization::Wrapper>);
+pub struct TablePartitionTemplateOverride(pub Option<serialization::Wrapper>);
 
 impl TablePartitionTemplateOverride {
     /// When a table is being explicitly created, the creation request might have contained a

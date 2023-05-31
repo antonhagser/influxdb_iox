@@ -108,7 +108,7 @@ impl Catalog for MemCatalog {
         ))
     }
 
-    #[cfg(test)]
+    // #[cfg(test)]
     fn metrics(&self) -> Arc<metric::Registry> {
         Arc::clone(&self.metrics)
     }
@@ -990,7 +990,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_catalog() {
-        crate::interface::test_helpers::test_catalog(|| async {
+        crate::interface::catalog_test_helpers::test_catalog(|| async {
             let metrics = Arc::new(metric::Registry::default());
             let x: Arc<dyn Catalog> = Arc::new(MemCatalog::new(metrics));
             x

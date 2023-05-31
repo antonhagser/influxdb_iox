@@ -266,7 +266,7 @@ where
 }
 
 /// Catalog helper functions for creation of catalog objects
-pub mod test_helpers {
+pub mod catalog_test_helpers {
     use crate::RepoCollection;
     use data_types::{
         partition_template::TablePartitionTemplateOverride, ColumnId, ColumnSet, CompactionLevel,
@@ -373,7 +373,7 @@ mod tests {
                 #[allow(clippy::bool_assert_comparison)]
                 #[tokio::test]
                 async fn [<test_validate_schema_ $name>]() {
-                    use crate::{interface::Catalog, test_helpers::arbitrary_namespace};
+                    use crate::{interface::Catalog, catalog_test_helpers::arbitrary_namespace};
                     use std::ops::DerefMut;
                     use pretty_assertions::assert_eq;
                     const NAMESPACE_NAME: &str = "bananas";

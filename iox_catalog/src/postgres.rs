@@ -310,7 +310,7 @@ DO NOTHING;
         ))
     }
 
-    #[cfg(test)]
+    // #[cfg(test)]
     fn metrics(&self) -> Arc<metric::Registry> {
         Arc::clone(&self.metrics)
     }
@@ -1804,10 +1804,12 @@ pub(crate) mod test_utils {
 mod tests {
     use super::*;
     use crate::{
+        catalog_test_helpers::{
+            arbitrary_namespace, arbitrary_parquet_file_params, arbitrary_table,
+        },
         postgres::test_utils::{
             create_db, maybe_skip_integration, setup_db, setup_db_no_migration,
         },
-        test_helpers::{arbitrary_namespace, arbitrary_parquet_file_params, arbitrary_table},
     };
     use assert_matches::assert_matches;
     use data_types::partition_template::TemplatePart;
@@ -1861,7 +1863,7 @@ mod tests {
 
         let postgres: Arc<dyn Catalog> = Arc::new(postgres);
 
-        crate::interface::test_helpers::test_catalog(|| async {
+        crate::interface::catalog_test_helpers::test_catalog(|| async {
             // Clean the schema.
             pool
                 .execute(format!("DROP SCHEMA {schema_name} CASCADE").as_str())

@@ -229,7 +229,7 @@ DO NOTHING;
         ))
     }
 
-    #[cfg(test)]
+    // #[cfg(test)]
     fn metrics(&self) -> Arc<Registry> {
         Arc::clone(&self.metrics)
     }
@@ -1553,7 +1553,7 @@ fn is_unique_violation(e: &sqlx::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{
+    use crate::catalog_test_helpers::{
         arbitrary_namespace, arbitrary_parquet_file_params, arbitrary_table,
     };
     use assert_matches::assert_matches;
@@ -1588,7 +1588,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_catalog() {
-        interface::test_helpers::test_catalog(|| async {
+        interface::catalog_test_helpers::test_catalog(|| async {
             let sqlite = setup_db().await;
             let sqlite: Arc<dyn Catalog> = Arc::new(sqlite);
             sqlite
