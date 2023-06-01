@@ -46,6 +46,40 @@ pub struct ShardConfigForLocalScheduler {
     pub hostname: Option<String>,
 }
 
+/// CLI config for partitions_source used by the scheduler.
+#[derive(Debug, Clone, Default, clap::Parser)]
+pub struct PartitionSourceConfigForLocalScheduler {
+    /// When in "hot" compaction mode, the compactor will only consider compacting partitions that
+    /// have new Parquet files created within this many minutes.
+    #[clap(
+        long = "compaction_partition_minute_threshold",
+        env = "INFLUXDB_IOX_COMPACTION_PARTITION_MINUTE_THRESHOLD",
+        default_value = "10",
+        action
+    )]
+    pub compaction_partition_minute_threshold: u64,
+
+    /// Filter partitions to the given set of IDs.
+    ///
+    /// This is mostly useful for debugging.
+    #[clap(
+        long = "compaction-partition-filter",
+        env = "INFLUXDB_IOX_COMPACTION_PARTITION_FILTER",
+        action
+    )]
+    pub partition_filter: Option<Vec<i64>>,
+
+    /// Compact all partitions found in the catalog, no matter if/when
+    /// they received writes.
+    #[clap(
+        long = "compaction-process-all-partitions",
+        env = "INFLUXDB_IOX_COMPACTION_PROCESS_ALL_PARTITIONS",
+        default_value = "false",
+        action
+    )]
+    pub process_all_partitions: bool,
+}
+
 /// CLI config for compactor scheduler.
 #[derive(Debug, Clone, Default, clap::Parser)]
 pub struct CompactorSchedulerConfig {
@@ -62,6 +96,10 @@ pub struct CompactorSchedulerConfig {
     /// Shard config used by the local scheduler.
     #[clap(flatten)]
     pub shard_config: ShardConfigForLocalScheduler,
+
+    /// Partition source config used by the local scheduler.
+    #[clap(flatten)]
+    pub partition_source_config: PartitionSourceConfigForLocalScheduler,
 }
 
 #[cfg(test)]
