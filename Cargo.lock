@@ -1015,6 +1015,7 @@ dependencies = [
  "sharder",
  "tokio",
  "tonic",
+ "workspace-hack",
 ]
 
 [[package]]
