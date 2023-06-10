@@ -215,9 +215,39 @@ impl QuerierDatabase {
 
 #[cfg(test)]
 mod tests {
+    use std::{num::NonZeroUsize, time::Instant};
+
     use super::*;
-    use crate::create_ingester_connection_for_testing;
+    use crate::{create_ingester_connection_for_testing, table::MetricPruningObserver};
+    use arrow::util::pretty::pretty_format_batches;
+    use datafusion::{
+        common::tree_node::TreeNode,
+        config::ConfigOptions,
+        physical_expr::PhysicalSortExpr,
+        physical_optimizer::{
+            dist_enforcement::EnforceDistribution, sort_enforcement::EnforceSorting,
+            PhysicalOptimizerRule,
+        },
+        physical_plan::{
+            file_format::ParquetExec, planner::DefaultPhysicalPlanner, ExecutionPlan,
+            PhysicalPlanner,
+        },
+        prelude::{count, lit, Expr},
+    };
+    use iox_catalog::{
+        interface::Catalog,
+        sqlite::{SqliteCatalog, SqliteConnectionOptions},
+    };
+    use iox_query::{
+        exec::{ExecutionContextProvider, ExecutorConfig, IOxSessionContext},
+        provider::DeduplicateExec,
+        test::{format_execution_plan, format_logical_plan},
+        QueryChunk, ScanPlanBuilder,
+    };
     use iox_tests::TestCatalog;
+    use iox_time::SystemProvider;
+    use predicate::Predicate;
+    use schema::Schema;
     use tokio::runtime::Handle;
 
     #[tokio::test]
@@ -290,5 +320,211 @@ mod tests {
         )
         .await
         .unwrap()
+    }
+
+    async fn new_sqllite_catalog(registry: Arc<metric::Registry>, path: &str) -> Arc<CatalogCache> {
+        let path: &str = path.as_ref();
+
+        let sqlite_options = SqliteConnectionOptions {
+            file_path: format!("{path}catalog.sqlite"),
+        };
+        let catalog: Arc<dyn Catalog> = Arc::new(
+            SqliteCatalog::connect(sqlite_options, Arc::clone(&registry))
+                .await
+                .unwrap(),
+        );
+        let time_provider = Arc::new(SystemProvider::new());
+        let object_store = Arc::new(
+            object_store::local::LocalFileSystem::new_with_prefix(format!("{path}object_store"))
+                .unwrap(),
+        );
+        Arc::new(CatalogCache::new_testing(
+            Arc::clone(&catalog),
+            time_provider,
+            Arc::clone(&registry),
+            Arc::clone(&object_store) as _,
+            &Handle::current(),
+        ))
+    }
+
+    async fn new_local_querier_database(
+        registry: Arc<metric::Registry>,
+        catalog_cache: Arc<CatalogCache>,
+    ) -> Result<QuerierDatabase, Error> {
+        let num_threads = NonZeroUsize::new(12).unwrap();
+        let parquet_store = &catalog_cache.parquet_store();
+        let executor = Arc::new(Executor::new_with_config(ExecutorConfig {
+            num_threads,
+            target_query_partitions: num_threads,
+            object_stores: HashMap::from([(
+                parquet_store.id(),
+                Arc::clone(parquet_store.object_store()),
+            )]),
+            mem_pool_size: 32_589_934_592,
+        }));
+        QuerierDatabase::new(
+            catalog_cache,
+            registry,
+            executor,
+            None,
+            QuerierDatabase::MAX_CONCURRENT_QUERIES_MAX,
+            Arc::new(HashMap::default()),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn test_parallel_dedup() {
+        test_helpers::maybe_start_logging();
+        let registry = Arc::new(metric::Registry::new());
+        let catalog_cache =
+            new_sqllite_catalog(Arc::clone(&registry), "/Users/cwolff/w/dedup-perf/data/").await;
+        let qdb = new_local_querier_database(Arc::clone(&registry), Arc::clone(&catalog_cache))
+            .await
+            .unwrap();
+
+        let db_name = "4ffa1256cf09608b_2b62db476a21c690";
+        let table_name = "incoming_lines.count";
+
+        let db = &qdb.db(db_name, None, false).await.unwrap();
+        let ctx = db.new_query_context(None);
+
+        let count_stmt = r#"select count(*) from "incoming_lines.count""#;
+        println!("*** planning and executing {count_stmt} ***");
+        let phys_plan = &ctx.sql_to_physical_plan(count_stmt).await.unwrap();
+        for line in format_execution_plan(phys_plan) {
+            println!("{line}");
+        }
+        exec_plan(&ctx, Arc::clone(phys_plan)).await;
+
+        // Get the largest parquet file for the table
+        let ns_cache = catalog_cache.namespace();
+        let ns = ns_cache.get(db_name.into(), &[], None).await.unwrap();
+        let table = &ns.tables[table_name.into()];
+        let pq_cache = &catalog_cache.parquet_file();
+        let pq_files = pq_cache.get(table.id, None, None).await;
+        let pq_file = pq_files
+            .files
+            .iter()
+            .max_by_key(|f| f.file_size_bytes)
+            .unwrap();
+        println!("largest parquet file has UUID {}", pq_file.object_store_id);
+
+        // Create a chunk
+        let chunk_adapter = ChunkAdapter::new(Arc::clone(&catalog_cache), Arc::clone(&registry));
+        let prune_metrics = Arc::new(PruneMetrics::new(&chunk_adapter.metric_registry()));
+        let mp_observer = MetricPruningObserver::new(prune_metrics);
+        let predicate = Predicate::default();
+        let chunks: Vec<Arc<dyn QueryChunk>> = chunk_adapter
+            .new_chunks(
+                Arc::clone(table),
+                Arc::new(vec![Arc::clone(pq_file)]),
+                &predicate,
+                mp_observer,
+                None,
+            )
+            .await
+            .into_iter()
+            .map(|pq_chunk| Arc::new(pq_chunk) as _)
+            .collect();
+
+        build_and_execute(&ctx, false, table_name, &table.schema, chunks.clone()).await;
+        build_and_execute(&ctx, true, table_name, &table.schema, chunks.clone()).await;
+    }
+
+    async fn build_and_execute(
+        ctx: &IOxSessionContext,
+        allow_parallel: bool,
+        table_name: &'static str,
+        schema: &Schema,
+        chunks: Vec<Arc<dyn QueryChunk>>,
+    ) {
+        println!("*** allow parallel: {allow_parallel} ***");
+        let logical_plan_builder = ScanPlanBuilder::new(table_name.into(), &schema)
+            .with_chunks(chunks)
+            .build()
+            .unwrap()
+            .plan_builder;
+        let logical_plan = logical_plan_builder
+            .aggregate(Vec::<Expr>::new(), [count(lit(1))])
+            .unwrap()
+            .build()
+            .unwrap();
+        println!("    *** logical plan");
+        for line in format_logical_plan(&logical_plan) {
+            println!("{line}");
+        }
+
+        // don't use the context to create the physical plan here, since it will include
+        // physical optimizers that will optimize away deduplication.
+        let plan = DefaultPhysicalPlanner::default()
+            .create_physical_plan(&logical_plan, &ctx.inner().state())
+            .await
+            .unwrap();
+        println!("    *** initial physical plan");
+        for line in format_execution_plan(&plan) {
+            println!("{line}");
+        }
+        let plan = inject_dedup(plan, allow_parallel);
+        exec_plan(&ctx, Arc::clone(&plan)).await;
+    }
+
+    async fn exec_plan(ctx: &IOxSessionContext, plan: Arc<dyn ExecutionPlan>) {
+        let start = Instant::now();
+        let batches = ctx.collect(Arc::clone(&plan)).await.unwrap();
+        let elapsed = start.elapsed();
+        println!("Duration: {}s", elapsed.as_secs_f64());
+        println!("{}", pretty_format_batches(&batches).unwrap());
+    }
+
+    fn inject_dedup(node: Arc<dyn ExecutionPlan>, allow_parallel: bool) -> Arc<dyn ExecutionPlan> {
+        fn inject_dedup_impl(
+            node: Arc<dyn ExecutionPlan>,
+            allow_parallel: bool,
+        ) -> Arc<dyn ExecutionPlan> {
+            if let Some(pq_exec) = node.as_any().downcast_ref::<ParquetExec>() {
+                let sort_exprs: Vec<PhysicalSortExpr> =
+                    pq_exec.output_ordering().unwrap().iter().cloned().collect();
+                let dedup_exec = if allow_parallel {
+                    DeduplicateExec::new_allow_parallel(
+                        Arc::new(pq_exec.clone()),
+                        sort_exprs,
+                        false,
+                    )
+                } else {
+                    DeduplicateExec::new(Arc::new(pq_exec.clone()), sort_exprs, false)
+                };
+                Arc::new(dedup_exec)
+            } else {
+                node.map_children(|n| Ok(inject_dedup_impl(n, allow_parallel)))
+                    .unwrap()
+            }
+        }
+
+        let config_options = ConfigOptions::default();
+        let node = inject_dedup_impl(node, allow_parallel);
+        println!("    *** after injecting dedup (allow_parallel={allow_parallel})");
+        for line in format_execution_plan(&node) {
+            println!("{line}");
+        }
+        let node = EnforceDistribution::default()
+            .optimize(node, &config_options)
+            .unwrap();
+        println!("    *** after enforce distribution");
+        for line in format_execution_plan(&node) {
+            println!("{line}");
+        }
+        if !allow_parallel {
+            let node = EnforceSorting::default()
+                .optimize(node, &config_options)
+                .unwrap();
+            println!("    *** after enforce sorting");
+            for line in format_execution_plan(&node) {
+                println!("{line}");
+            }
+            node
+        } else {
+            node
+        }
     }
 }
