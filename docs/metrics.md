@@ -2,9 +2,10 @@
 
 IOx output metrics to Jaeger for distributed request correlation.
 
-Here are useful metrics
+## Useful existing metrics
 
 ### Requests to IOx Server including Routers and Query Servers
+
 | Metric name |  Code Name | Description |
 | --- | --- | --- |
 | http_requests_total | http_requests | Total number of HTTP requests |
@@ -24,6 +25,7 @@ Here are useful metrics
 | ingest_entries_bytes_total |  ingest_entries_bytes_total | Total number of entry bytes ingested (Not sure what this means |
 
 ### Chunks
+
 | Metric name |  Code Name | Description |
 | --- | --- | --- |
 | catalog_chunks_mem_usage_bytes | memory_metrics | Total memory usage by chunks |
@@ -37,12 +39,30 @@ Here are useful metrics
 | catalog_chunks_total | chunk_state | Number of chunks in different states (open, closed, compacting, compacted, writing_os, rub_and_os, ...)) - might be removed in the future |
 
 ### Chunks and Rows Pruned by Queries
+
 | Metric name |  Code Name | Description |
 | --- | --- | --- |
 | query_access_pruned_chunks_total | pruned_chunks | Number of chunks of a table pruned while running queries |
 | query_access_pruned_rows_total  | pruned_rows | Number of chunks of a table pruned while running queries |
 
 ### jemalloc
+
 | Metric name |  Code Name | Description |
 | --- | --- | --- |
 | jemalloc_memstats_bytes | ServerMetrics::jemalloc_domain | tracking jemalloc's active, alloc, metadata, mapped, resident, retained  |
+
+## Adding new metrics
+
+The `metric` crate is responsible for managing metrics. It has documentation, including some
+examples, viewable with `cargo doc --no-deps --open -p metric`.
+
+You'll need an instance of `metric::Registry`, which keeps track of all metrics. Each service has
+an `Arc<metric::Registry>` that you can cheaply clone around to wherever you need it; for example,
+the [`querier` `QuerierServer` has one in its `metrics`
+field](https://github.com/influxdata/influxdb_iox/blob/f58e647d3c625a9cf61d21c29f1d08afb1edd6f7/quer
+ier/src/server.rs#L12).
+
+### Choosing the metric type
+
+### Testing
+
