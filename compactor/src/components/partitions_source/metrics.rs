@@ -1,7 +1,8 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use data_types::{PartitionId, PartitionsSource};
+use compactor_scheduler::PartitionsSource;
+use data_types::PartitionId;
 use metric::{Registry, U64Counter};
 
 const METRIC_NAME_PARTITIONS_FETCH_COUNT: &str = "iox_compactor_partitions_fetch_count";
@@ -67,7 +68,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use data_types::MockPartitionsSource;
+    use compactor_scheduler::MockPartitionsSource;
     use metric::assert_counter;
 
     use super::*;

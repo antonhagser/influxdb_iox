@@ -8,9 +8,8 @@ use std::{
 };
 
 use async_trait::async_trait;
-use data_types::{
-    CompactionLevel, ParquetFile, ParquetFileId, ParquetFileParams, PartitionId, PartitionsSource,
-};
+use compactor_scheduler::PartitionsSource;
+use data_types::{CompactionLevel, ParquetFile, ParquetFileId, ParquetFileParams, PartitionId};
 use futures::StreamExt;
 use iox_time::{Time, TimeProvider};
 
@@ -297,7 +296,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use data_types::MockPartitionsSource;
+    use compactor_scheduler::MockPartitionsSource;
     use iox_time::MockProvider;
 
     use crate::components::{

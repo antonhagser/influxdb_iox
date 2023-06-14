@@ -1,6 +1,7 @@
 use std::{fmt::Display, sync::Arc};
 
-use data_types::{PartitionId, PartitionsSource};
+use compactor_scheduler::PartitionsSource;
+use data_types::PartitionId;
 use futures::{stream::BoxStream, StreamExt};
 
 use super::PartitionStream;
@@ -47,7 +48,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use data_types::MockPartitionsSource;
+    use compactor_scheduler::MockPartitionsSource;
 
     use super::*;
 

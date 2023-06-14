@@ -7,7 +7,8 @@ use std::{
 };
 
 use async_trait::async_trait;
-use data_types::{PartitionId, PartitionsSource};
+use compactor_scheduler::PartitionsSource;
+use data_types::PartitionId;
 use futures::StreamExt;
 
 use crate::components::partition_done_sink::PartitionDoneSink;
@@ -177,7 +178,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use data_types::MockPartitionsSource;
+    use compactor_scheduler::MockPartitionsSource;
     use std::collections::HashMap;
 
     use crate::components::partition_done_sink::mock::MockPartitionDoneSink;

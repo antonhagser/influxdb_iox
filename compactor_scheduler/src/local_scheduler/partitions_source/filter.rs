@@ -1,9 +1,9 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use data_types::{PartitionId, PartitionsSource};
+use data_types::PartitionId;
 
-use crate::local_scheduler::id_only_partition_filter::IdOnlyPartitionFilter;
+use crate::{local_scheduler::id_only_partition_filter::IdOnlyPartitionFilter, PartitionsSource};
 
 /// Asbtraction to apply a filter to an inner [`PartitionsSource`].
 #[derive(Debug)]

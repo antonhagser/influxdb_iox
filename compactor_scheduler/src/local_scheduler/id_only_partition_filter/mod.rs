@@ -1,4 +1,4 @@
-//! Filtering of a [`PartitionsSource`](data_types::PartitionsSource) per PartitionId (no file IO).
+//! Filtering of a [`PartitionsSource`](crate::PartitionsSource) per PartitionId (no file IO).
 
 use std::fmt::{Debug, Display};
 

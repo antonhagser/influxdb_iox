@@ -1,7 +1,8 @@
 use std::{fmt::Display, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use data_types::{PartitionId, PartitionsSource};
+use compactor_scheduler::PartitionsSource;
+use data_types::PartitionId;
 use iox_time::TimeProvider;
 
 #[derive(Debug)]
@@ -54,8 +55,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use compactor_scheduler::MockPartitionsSource;
     use compactor_test_utils::AssertFutureExt;
-    use data_types::MockPartitionsSource;
     use iox_time::{MockProvider, Time};
 
     use super::*;

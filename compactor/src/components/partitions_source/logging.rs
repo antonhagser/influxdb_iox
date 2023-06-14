@@ -1,7 +1,8 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use data_types::{PartitionId, PartitionsSource};
+use compactor_scheduler::PartitionsSource;
+use data_types::PartitionId;
 use observability_deps::tracing::{info, warn};
 
 #[derive(Debug)]
@@ -47,7 +48,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use data_types::MockPartitionsSource;
+    use compactor_scheduler::MockPartitionsSource;
     use test_helpers::tracing::TracingCapture;
 
     use super::*;

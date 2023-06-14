@@ -1,8 +1,8 @@
 use std::{fmt::Display, sync::Arc};
 
 use async_trait::async_trait;
-use compactor_scheduler::{CompactionJob, Scheduler};
-use data_types::{PartitionId, PartitionsSource};
+use compactor_scheduler::{CompactionJob, PartitionsSource, Scheduler};
+use data_types::PartitionId;
 
 #[derive(Debug)]
 pub struct ScheduledPartitionsSource {

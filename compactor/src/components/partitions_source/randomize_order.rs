@@ -1,7 +1,8 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use data_types::{PartitionId, PartitionsSource};
+use compactor_scheduler::PartitionsSource;
+use data_types::PartitionId;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 #[derive(Debug)]
@@ -46,7 +47,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use data_types::MockPartitionsSource;
+    use compactor_scheduler::MockPartitionsSource;
 
     use super::*;
 

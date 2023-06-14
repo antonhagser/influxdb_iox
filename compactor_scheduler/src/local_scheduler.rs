@@ -12,13 +12,15 @@ use std::{
 
 use async_trait::async_trait;
 use backoff::BackoffConfig;
-use data_types::{MockPartitionsSource, PartitionsSource};
 use iox_catalog::interface::Catalog;
 use iox_time::{SystemProvider, TimeProvider};
 use observability_deps::tracing::info;
 
-use crate::local_scheduler::id_only_partition_filter::shard::ShardPartitionFilter;
-use crate::scheduler::{CompactionJob, Scheduler};
+use crate::{
+    local_scheduler::id_only_partition_filter::shard::ShardPartitionFilter,
+    scheduler::{CompactionJob, Scheduler},
+    MockPartitionsSource, PartitionsSource,
+};
 
 use self::{
     id_only_partition_filter::{and::AndIdOnlyPartitionFilter, IdOnlyPartitionFilter},

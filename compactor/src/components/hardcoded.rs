@@ -4,7 +4,8 @@
 
 use std::{sync::Arc, time::Duration};
 
-use data_types::{CompactionLevel, PartitionsSource};
+use compactor_scheduler::PartitionsSource;
+use data_types::CompactionLevel;
 use object_store::memory::InMemory;
 
 use crate::{config::Config, error::ErrorKind, object_store::ignore_writes::IgnoreWrites};

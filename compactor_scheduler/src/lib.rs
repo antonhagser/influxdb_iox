@@ -23,6 +23,8 @@ use workspace_hack as _;
 
 mod local_scheduler;
 pub use local_scheduler::{LocalScheduler, PartitionsSourceConfig};
+mod partitions_source;
+pub use partitions_source::*;
 mod remote_scheduler;
 mod scheduler;
 pub use scheduler::*;

@@ -3,10 +3,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::PartitionId;
 use async_trait::async_trait;
+use data_types::PartitionId;
 
-/// A source of partitions, noted by [`PartitionId`](crate::PartitionId), that may potentially need compacting.
+/// A source of partitions, noted by [`PartitionId`](data_types::PartitionId), that may potentially need compacting.
 #[async_trait]
 pub trait PartitionsSource: Debug + Display + Send + Sync {
     /// Get partition IDs.

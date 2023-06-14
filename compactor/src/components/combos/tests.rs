@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
-use data_types::{CompactionLevel, MockPartitionsSource, PartitionId, PartitionsSource};
+use compactor_scheduler::{MockPartitionsSource, PartitionsSource};
+use data_types::{CompactionLevel, PartitionId};
 use iox_time::{MockProvider, Time};
 
 use crate::components::{
