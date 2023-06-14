@@ -11,8 +11,10 @@ pub struct CompactionJob {
     pub partition_id: PartitionId,
 }
 
-impl From<proto::CompactionJob> for CompactionJob {
-    fn from(value: proto::CompactionJob) -> Self {
+impl TryFrom<proto::CompactionJob> for CompactionJob {
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+
+    fn try_from(value: proto::CompactionJob) -> Result<Self, Self::Error> {
         let proto::CompactionJob {
             partition_id,
             doneness_criteria: _,
@@ -20,9 +22,9 @@ impl From<proto::CompactionJob> for CompactionJob {
             input_file_limit: _,
         } = value;
 
-        Self {
+        Ok(Self {
             partition_id: PartitionId::new(partition_id),
-        }
+        })
     }
 }
 

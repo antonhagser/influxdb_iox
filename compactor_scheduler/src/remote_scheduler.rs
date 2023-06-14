@@ -36,7 +36,12 @@ impl Scheduler for RemoteScheduler {
             .expect("need to add error handling")
             .into_inner()
             .compaction_jobs;
-        grpc_jobs.into_iter().map(CompactionJob::from).collect()
+        grpc_jobs
+            .into_iter()
+            .map(|job| {
+                CompactionJob::try_from(job).expect("malformed GetJobResponse from RemoteScheduler")
+            })
+            .collect()
     }
 }
 
