@@ -344,7 +344,7 @@ impl TablePartitionTemplateOverride {
 /// from the database through `sqlx` for the `NamespacePartitionTemplateOverride` and
 /// `TablePartitionTemplateOverride` types. It's an internal implementation detail to minimize code
 /// duplication.
-mod serialization {
+pub mod serialization {
     use super::{ValidationError, MAXIMUM_NUMBER_OF_TEMPLATE_PARTS};
     use chrono::{format::StrftimeItems, Utc};
     use generated_types::influxdata::iox::partition_template::v1 as proto;
