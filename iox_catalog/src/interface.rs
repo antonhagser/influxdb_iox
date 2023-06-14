@@ -10,6 +10,7 @@ use data_types::{
 };
 use iox_time::TimeProvider;
 use snafu::{OptionExt, Snafu};
+use std::time::Duration;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fmt::{Debug, Display},
@@ -148,6 +149,16 @@ pub enum Error {
 
     #[snafu(display("could not delete namespace: {source}"))]
     CouldNotDeleteNamespace { source: sqlx::Error },
+
+    #[snafu(display("{context} retryable error: {message}\nretry in {backoff:?} seconds"))]
+    OperationalRetryable {
+        backoff: Duration,
+        message: String,
+        context: String,
+    },
+
+    #[snafu(display("{context} non-retryable error: {message}"))]
+    OperationalNonRetryable { message: String, context: String },
 }
 
 /// A specialized `Error` for Catalog errors
