@@ -42,7 +42,7 @@ pub struct ShardConfigForLocalScheduler {
     ///
     /// comprised of leading text (e.g. 'iox-shared-compactor-'), ending with shard_id (e.g. '0').
     /// When shard_count is specified, but shard_id is not specified, the id is extracted from hostname.
-    #[clap(long = "compaction-hostname", env = "HOSTNAME", action)]
+    #[clap(env = "HOSTNAME")]
     pub hostname: Option<String>,
 }
 
