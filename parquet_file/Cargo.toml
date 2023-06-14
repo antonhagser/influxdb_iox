@@ -23,7 +23,7 @@ prost = "0.11"
 schema = { path = "../schema" }
 snafu = "0.7"
 thiserror = "1.0.40"
-thrift = "0.17"
+thrift = { version = "0.17", default-features = false }
 tokio = { version = "1.28", features = ["macros", "parking_lot", "rt", "rt-multi-thread", "sync"] }
 uuid = { version = "1", features = ["v4"] }
 zstd = "0.12"
