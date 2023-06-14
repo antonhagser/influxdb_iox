@@ -351,7 +351,7 @@ pub mod serialization {
     use std::{fmt::Write, sync::Arc};
 
     #[derive(Debug, Clone, PartialEq)]
-    pub struct Wrapper(Arc<proto::PartitionTemplate>);
+    pub struct Wrapper(pub Arc<proto::PartitionTemplate>);
 
     impl Wrapper {
         /// Read access to the inner proto
