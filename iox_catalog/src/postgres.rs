@@ -6,10 +6,6 @@ use crate::{
         ParquetFileRepo, PartitionRepo, RepoCollection, Result, SoftDeletedRows, TableRepo,
         MAX_PARQUET_FILES_SELECTED_ONCE,
     },
-    kafkaless_transition::{
-        SHARED_QUERY_POOL, SHARED_QUERY_POOL_ID, SHARED_TOPIC_ID, SHARED_TOPIC_NAME,
-        TRANSITION_SHARD_ID, TRANSITION_SHARD_INDEX,
-    },
     metrics::MetricDecorator,
     migrate::IOxMigrator,
     DEFAULT_MAX_COLUMNS_PER_TABLE, DEFAULT_MAX_TABLES,
@@ -246,53 +242,6 @@ impl Catalog for PostgresCatalog {
             .run(&self.pool)
             .await
             .map_err(|e| Error::Setup { source: e.into() })?;
-
-        // We need to manually insert the topic here so that we can create the transition shard
-        // below.
-        sqlx::query(
-            r#"
-INSERT INTO topic (name)
-VALUES ($1)
-ON CONFLICT ON CONSTRAINT topic_name_unique
-DO NOTHING;
-        "#,
-        )
-        .bind(SHARED_TOPIC_NAME)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| Error::Setup { source: e })?;
-
-        // The transition shard must exist and must have magic ID and INDEX.
-        sqlx::query(
-            r#"
-INSERT INTO shard (id, topic_id, shard_index, min_unpersisted_sequence_number)
-OVERRIDING SYSTEM VALUE
-VALUES ($1, $2, $3, 0)
-ON CONFLICT ON CONSTRAINT shard_unique
-DO NOTHING;
-        "#,
-        )
-        .bind(TRANSITION_SHARD_ID)
-        .bind(SHARED_TOPIC_ID)
-        .bind(TRANSITION_SHARD_INDEX)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| Error::Setup { source: e })?;
-
-        // We need to manually insert the query pool here so that we can create namespaces that
-        // reference it.
-        sqlx::query(
-            r#"
-INSERT INTO query_pool (name)
-VALUES ($1)
-ON CONFLICT ON CONSTRAINT query_pool_name_unique
-DO NOTHING;
-        "#,
-        )
-        .bind(SHARED_QUERY_POOL)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| Error::Setup { source: e })?;
 
         Ok(())
     }
@@ -572,20 +521,18 @@ impl NamespaceRepo for PostgresTxn {
         let rec = sqlx::query_as::<_, Namespace>(
             r#"
 INSERT INTO namespace (
-    name, topic_id, query_pool_id, retention_period_ns, max_tables, max_columns_per_table, partition_template
+    name, retention_period_ns, max_tables, max_columns_per_table, partition_template
 )
-VALUES ( $1, $2, $3, $4, $5, $6, $7 )
+VALUES ( $1, $2, $3, $4, $5 )
 RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, deleted_at,
           partition_template;
             "#,
         )
         .bind(name.as_str()) // $1
-        .bind(SHARED_TOPIC_ID) // $2
-        .bind(SHARED_QUERY_POOL_ID) // $3
-        .bind(retention_period_ns) // $4
-        .bind(max_tables.unwrap_or(DEFAULT_MAX_TABLES)) // $5
-        .bind(max_columns_per_table.unwrap_or(DEFAULT_MAX_COLUMNS_PER_TABLE)) // $6
-        .bind(partition_template); // $7
+        .bind(retention_period_ns) // $2
+        .bind(max_tables.unwrap_or(DEFAULT_MAX_TABLES)) // $3
+        .bind(max_columns_per_table.unwrap_or(DEFAULT_MAX_COLUMNS_PER_TABLE)) // $4
+        .bind(partition_template); // $5
 
         let rec = rec.fetch_one(&mut self.inner).await.map_err(|e| {
             if is_unique_violation(&e) {
@@ -1045,17 +992,16 @@ impl PartitionRepo for PostgresTxn {
         let v = sqlx::query_as::<_, Partition>(
             r#"
 INSERT INTO partition
-    ( partition_key, shard_id, table_id, sort_key)
+    ( partition_key, table_id, sort_key)
 VALUES
-    ( $1, $2, $3, '{}')
+    ( $1, $2, '{}')
 ON CONFLICT ON CONSTRAINT partition_key_unique
 DO UPDATE SET partition_key = partition.partition_key
 RETURNING id, table_id, partition_key, sort_key, new_file_at;
         "#,
         )
         .bind(key) // $1
-        .bind(TRANSITION_SHARD_ID) // $2
-        .bind(table_id) // $3
+        .bind(table_id) // $2
         .fetch_one(&mut self.inner)
         .await
         .map_err(|e| {
@@ -1557,26 +1503,25 @@ where
     let query = sqlx::query_scalar::<_, ParquetFileId>(
         r#"
 INSERT INTO parquet_file (
-    shard_id, table_id, partition_id, object_store_id,
+    table_id, partition_id, object_store_id,
     min_time, max_time, file_size_bytes,
     row_count, compaction_level, created_at, namespace_id, column_set, max_l0_created_at )
-VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13 )
+VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12 )
 RETURNING id;
         "#,
     )
-    .bind(TRANSITION_SHARD_ID) // $1
-    .bind(table_id) // $2
-    .bind(partition_id) // $3
-    .bind(object_store_id) // $4
-    .bind(min_time) // $5
-    .bind(max_time) // $6
-    .bind(file_size_bytes) // $7
-    .bind(row_count) // $8
-    .bind(compaction_level) // $9
-    .bind(created_at) // $10
-    .bind(namespace_id) // $11
-    .bind(column_set) // $12
-    .bind(max_l0_created_at); // $13
+    .bind(table_id) // $1
+    .bind(partition_id) // $2
+    .bind(object_store_id) // $3
+    .bind(min_time) // $4
+    .bind(max_time) // $5
+    .bind(file_size_bytes) // $6
+    .bind(row_count) // $7
+    .bind(compaction_level) // $8
+    .bind(created_at) // $9
+    .bind(namespace_id) // $10
+    .bind(column_set) // $11
+    .bind(max_l0_created_at); // $12
     let parquet_file_id = query.fetch_one(executor).await.map_err(|e| {
         if is_unique_violation(&e) {
             Error::FileExists {
@@ -2248,18 +2193,16 @@ mod tests {
         let insert_null_partition_template_namespace = sqlx::query(
             r#"
 INSERT INTO namespace (
-    name, topic_id, query_pool_id, retention_period_ns, max_tables, partition_template
+    name, retention_period_ns, max_tables, partition_template
 )
-VALUES ( $1, $2, $3, $4, $5, NULL )
+VALUES ( $1, $2, $3, NULL )
 RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, deleted_at,
           partition_template;
             "#,
         )
         .bind(namespace_name) // $1
-        .bind(SHARED_TOPIC_ID) // $2
-        .bind(SHARED_QUERY_POOL_ID) // $3
-        .bind(None::<Option<i64>>) // $4
-        .bind(DEFAULT_MAX_TABLES); // $5
+        .bind(None::<Option<i64>>) // $2
+        .bind(DEFAULT_MAX_TABLES); // $3
 
         insert_null_partition_template_namespace
             .fetch_one(&pool)

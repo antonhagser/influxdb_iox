@@ -38,7 +38,6 @@ pub const DEFAULT_MAX_COLUMNS_PER_TABLE: i32 = 200;
 pub const DEFAULT_RETENTION_PERIOD: Option<i64> = None;
 
 pub mod interface;
-pub(crate) mod kafkaless_transition;
 pub mod mem;
 pub mod metrics;
 pub mod migrate;

@@ -70,20 +70,12 @@ postgres=# \d
  iox_catalog | _sqlx_migrations              | table    | postgres
  iox_catalog | column_name                   | table    | postgres
  iox_catalog | column_name_id_seq            | sequence | postgres
- iox_catalog | kafka_topic                   | table    | postgres
- iox_catalog | kafka_topic_id_seq            | sequence | postgres
  iox_catalog | namespace                     | table    | postgres
  iox_catalog | namespace_id_seq              | sequence | postgres
  iox_catalog | parquet_file                  | table    | postgres
  iox_catalog | parquet_file_id_seq           | sequence | postgres
  iox_catalog | partition                     | table    | postgres
  iox_catalog | partition_id_seq              | sequence | postgres
- iox_catalog | query_pool                    | table    | postgres
- iox_catalog | query_pool_id_seq             | sequence | postgres
- iox_catalog | sequencer                     | table    | postgres
- iox_catalog | sequencer_id_seq              | sequence | postgres
- iox_catalog | sharding_rule_override        | table    | postgres
- iox_catalog | sharding_rule_override_id_seq | sequence | postgres
  iox_catalog | table_name                    | table    | postgres
  iox_catalog | table_name_id_seq             | sequence | postgres
  iox_catalog | tombstone                     | table    | postgres
