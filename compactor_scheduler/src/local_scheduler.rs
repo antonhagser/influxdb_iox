@@ -35,15 +35,12 @@ use self::{
 /// Implementation of the [`Scheduler`] for local (per compactor) scheduling.
 #[derive(Debug)]
 pub struct LocalScheduler {
-    partitions_source_config: PartitionsSourceConfig,
-    catalog: Arc<dyn Catalog>,
-    time_provider: Arc<dyn TimeProvider>,
-    backoff_config: BackoffConfig,
+    partitions_source: Arc<dyn PartitionsSource>,
     shard_config: Option<ShardConfig>,
 }
 
 impl LocalScheduler {
-    /// Create new LocalScheduler.
+    /// Create a new [`LocalScheduler`].
     pub fn new(
         partitions_source_config: PartitionsSourceConfig,
         catalog: Arc<dyn Catalog>,
@@ -56,32 +53,19 @@ impl LocalScheduler {
             None => Arc::new(SystemProvider::default()),
         };
 
-        Self {
-            partitions_source_config,
-            catalog,
-            time_provider,
-            backoff_config,
-            shard_config,
-        }
-    }
-}
-
-#[async_trait]
-impl Scheduler for LocalScheduler {
-    async fn get_job(&self) -> Vec<CompactionJob> {
-        let partitions_source: Arc<dyn PartitionsSource> = match &self.partitions_source_config {
+        let partitions_source: Arc<dyn PartitionsSource> = match &partitions_source_config {
             PartitionsSourceConfig::CatalogRecentWrites { threshold } => {
                 Arc::new(CatalogToCompactPartitionsSource::new(
-                    self.backoff_config.clone(),
-                    Arc::clone(&self.catalog),
+                    backoff_config,
+                    Arc::clone(&catalog),
                     *threshold,
                     None, // Recent writes is `threshold` ago to now
-                    Arc::clone(&self.time_provider),
+                    Arc::clone(&time_provider),
                 ))
             }
             PartitionsSourceConfig::CatalogAll => Arc::new(CatalogAllPartitionsSource::new(
-                self.backoff_config.clone(),
-                Arc::clone(&self.catalog),
+                backoff_config,
+                Arc::clone(&catalog),
             )),
             PartitionsSourceConfig::Fixed(ids) => {
                 Arc::new(MockPartitionsSource::new(ids.iter().cloned().collect()))
@@ -89,7 +73,7 @@ impl Scheduler for LocalScheduler {
         };
 
         let mut id_only_partition_filters: Vec<Arc<dyn IdOnlyPartitionFilter>> = vec![];
-        if let Some(shard_config) = &self.shard_config {
+        if let Some(shard_config) = &shard_config {
             // add shard filter before performing any catalog IO
             info!(
                 "starting compactor {} of {}",
@@ -101,15 +85,27 @@ impl Scheduler for LocalScheduler {
             )));
         }
 
-        FilterPartitionsSourceWrapper::new(
+        let partitions_source = Arc::new(FilterPartitionsSourceWrapper::new(
             AndIdOnlyPartitionFilter::new(id_only_partition_filters),
             partitions_source,
-        )
-        .fetch()
-        .await
-        .into_iter()
-        .map(|partition_id| CompactionJob { partition_id })
-        .collect()
+        ));
+
+        Self {
+            partitions_source,
+            shard_config,
+        }
+    }
+}
+
+#[async_trait]
+impl Scheduler for LocalScheduler {
+    async fn get_job(&self) -> Vec<CompactionJob> {
+        self.partitions_source
+            .fetch()
+            .await
+            .into_iter()
+            .map(|partition_id| CompactionJob { partition_id })
+            .collect()
     }
 }
 
