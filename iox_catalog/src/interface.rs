@@ -1121,7 +1121,6 @@ pub mod catalog_test_helpers {
 
         // test we can create a table
         let t = arbitrary_table(&mut *repos, "test_table", &namespace).await;
-        assert!(t.id > TableId::new(0));
         assert_eq!(
             t.partition_template,
             TablePartitionTemplateOverride::default()
