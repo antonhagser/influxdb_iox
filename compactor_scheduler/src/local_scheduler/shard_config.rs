@@ -4,19 +4,19 @@ use clap_blocks::compactor_scheduler::ShardConfigForLocalScheduler;
 /// configured per LocalScheduler, which equates to per compactor.
 #[derive(Debug, Clone)]
 #[allow(missing_copy_implementations)]
-pub struct ShardConfig {
+pub(crate) struct ShardConfig {
     /// Number of shards.
-    pub n_shards: usize,
+    pub(crate) n_shards: usize,
 
     /// Shard ID.
     ///
     /// Starts as 0 and must be smaller than the number of shards.
-    pub shard_id: usize,
+    pub(crate) shard_id: usize,
 }
 
 impl ShardConfig {
     /// Create a new [`ShardConfig`] from a [`ShardConfigForLocalScheduler`].
-    pub fn from_config(config: ShardConfigForLocalScheduler) -> Option<Self> {
+    pub(crate) fn from_config(config: ShardConfigForLocalScheduler) -> Option<Self> {
         match (config.shard_count, config.shard_id, config.hostname) {
             // if no shard_count is provided, then we are not sharding
             (None, _, _) => None,

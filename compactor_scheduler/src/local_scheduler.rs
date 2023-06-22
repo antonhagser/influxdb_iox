@@ -30,7 +30,7 @@ use self::{
 
 /// Implementation of the scheduler for local (per compactor) scheduling.
 #[derive(Debug)]
-pub struct LocalScheduler {
+pub(crate) struct LocalScheduler {
     /// The partitions source to use for scheduling.
     partitions_source: Arc<dyn PartitionsSource>,
     /// The shard config used for generating the PartitionsSoruce.
@@ -39,7 +39,7 @@ pub struct LocalScheduler {
 
 impl LocalScheduler {
     /// Create a new [`LocalScheduler`].
-    pub fn new(
+    pub(crate) fn new(
         config: PartitionsSourceConfig,
         shard_config: Option<ShardConfig>,
         backoff_config: BackoffConfig,

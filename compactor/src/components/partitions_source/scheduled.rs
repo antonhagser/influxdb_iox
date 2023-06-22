@@ -1,10 +1,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use compactor_scheduler::{CompactionJob, LocalScheduler, PartitionsSource, Scheduler};
+use compactor_scheduler::{CompactionJob, PartitionsSource, Scheduler};
 use data_types::PartitionId;
-
-use crate::config::Config;
 
 #[derive(Debug)]
 pub struct ScheduledPartitionsSource {
@@ -12,15 +10,7 @@ pub struct ScheduledPartitionsSource {
 }
 
 impl ScheduledPartitionsSource {
-    pub fn new(config: &Config) -> Self {
-        let scheduler = Arc::new(LocalScheduler::new(
-            config.partitions_source.clone(),
-            config.shard_config.clone(),
-            config.backoff_config.clone(),
-            Arc::clone(&config.catalog),
-            Arc::clone(&config.time_provider),
-        ));
-
+    pub fn new(scheduler: Arc<dyn Scheduler>) -> Self {
         Self { scheduler }
     }
 }
@@ -41,10 +31,7 @@ impl std::fmt::Display for ScheduledPartitionsSource {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
-    use backoff::BackoffConfig;
-    use compactor_scheduler::PartitionsSourceConfig;
+    use compactor_scheduler::create_test_compactor_scheduler;
     use iox_tests::TestCatalog;
     use iox_time::{MockProvider, Time};
 
@@ -52,13 +39,10 @@ mod tests {
 
     #[test]
     fn test_display() {
-        let scheduler = Arc::new(LocalScheduler::new(
-            PartitionsSourceConfig::Fixed(HashSet::new()),
-            None,
-            BackoffConfig::default(),
+        let scheduler = create_test_compactor_scheduler(
             TestCatalog::new().catalog(),
             Arc::new(MockProvider::new(Time::MIN)),
-        ));
+        );
         let source = ScheduledPartitionsSource { scheduler };
 
         assert_eq!(

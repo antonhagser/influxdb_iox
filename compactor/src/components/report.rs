@@ -13,6 +13,7 @@ pub fn log_config(config: &Config) {
         // no need to print the internal state of the registry
         metric_registry: _,
         catalog,
+        scheduler,
         parquet_store_real,
         parquet_store_scratchpad,
         exec,
@@ -25,11 +26,9 @@ pub fn log_config(config: &Config) {
         percentage_max_file_size,
         split_percentage,
         partition_timeout,
-        partitions_source,
         shadow_mode,
         enable_scratchpad,
         ignore_partition_skip_marker,
-        shard_config: _,
         min_num_l1_files_to_compact,
         process_once,
         parquet_files_sink_override,
@@ -50,6 +49,7 @@ pub fn log_config(config: &Config) {
 
     info!(
         %catalog,
+        %scheduler,
         %parquet_store_real,
         %parquet_store_scratchpad,
         %exec,
@@ -62,7 +62,6 @@ pub fn log_config(config: &Config) {
         percentage_max_file_size,
         split_percentage,
         partition_timeout_secs=partition_timeout.as_secs_f32(),
-        %partitions_source,
         shadow_mode,
         enable_scratchpad,
         ignore_partition_skip_marker,

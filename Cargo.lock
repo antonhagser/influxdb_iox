@@ -2477,6 +2477,7 @@ dependencies = [
  "clap_blocks",
  "comfy-table 7.0.1",
  "compactor",
+ "compactor_scheduler",
  "console-subscriber",
  "data_types",
  "datafusion",

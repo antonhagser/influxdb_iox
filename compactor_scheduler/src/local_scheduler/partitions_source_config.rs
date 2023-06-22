@@ -8,7 +8,7 @@ const DEFAULT_PARTITION_MINUTE_THRESHOLD: u64 = 10;
 
 /// Partitions source config.
 #[derive(Debug, Clone, PartialEq)]
-pub enum PartitionsSourceConfig {
+pub(crate) enum PartitionsSourceConfig {
     /// For "hot" compaction: use the catalog to determine which partitions have recently received
     /// writes, defined as having a new Parquet file created within the last `threshold`.
     CatalogRecentWrites {
@@ -53,7 +53,9 @@ impl Default for PartitionsSourceConfig {
 
 impl PartitionsSourceConfig {
     /// Create a new [`PartitionsSourceConfig`] from the CLI|env config.
-    pub fn from_config(config: PartitionSourceConfigForLocalScheduler) -> PartitionsSourceConfig {
+    pub(crate) fn from_config(
+        config: PartitionSourceConfigForLocalScheduler,
+    ) -> PartitionsSourceConfig {
         let PartitionSourceConfigForLocalScheduler {
             partition_filter,
             process_all_partitions,

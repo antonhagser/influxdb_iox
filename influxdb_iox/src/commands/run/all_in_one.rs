@@ -19,6 +19,7 @@ use clap_blocks::{
     socket_addr::SocketAddr,
 };
 use compactor::object_store::metrics::MetricsStore;
+use compactor_scheduler::create_compactor_scheduler_service;
 use iox_query::exec::{Executor, ExecutorConfig};
 use iox_time::{SystemProvider, TimeProvider};
 use ioxd_common::{
@@ -644,16 +645,22 @@ pub async fn command(config: Config) -> Result<()> {
         StorageId::from("iox_scratchpad"),
     );
 
+    let scheduler = create_compactor_scheduler_service(
+        compactor_scheduler_config,
+        Arc::clone(&catalog),
+        Arc::clone(&time_provider),
+    );
+
     let compactor = create_compactor_server_type(
         &common_state,
         Arc::clone(&metrics),
         Arc::clone(&catalog),
+        scheduler,
         parquet_store_real,
         parquet_store_scratchpad,
         Arc::clone(&exec),
         Arc::clone(&time_provider),
         compactor_config,
-        compactor_scheduler_config,
     )
     .await;
 
