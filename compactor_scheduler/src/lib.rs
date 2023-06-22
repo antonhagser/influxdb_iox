@@ -25,6 +25,8 @@ mod local_scheduler;
 pub use local_scheduler::LocalScheduler;
 mod partitions_source;
 pub use partitions_source::*;
+mod scheduler;
+pub use scheduler::*;
 
 // Temporary exports. Will eventually be encapsulated in local_scheduler.
 pub use local_scheduler::id_only_partition_filter::IdOnlyPartitionFilter;

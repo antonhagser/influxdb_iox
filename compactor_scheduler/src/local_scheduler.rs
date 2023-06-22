@@ -8,12 +8,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use backoff::BackoffConfig;
-use data_types::PartitionId;
 use iox_catalog::interface::Catalog;
 use iox_time::TimeProvider;
 use observability_deps::tracing::info;
 
-use crate::{MockPartitionsSource, PartitionsSource, PartitionsSourceConfig, ShardConfig};
+use crate::{
+    CompactionJob, MockPartitionsSource, PartitionsSource, PartitionsSourceConfig, Scheduler,
+    ShardConfig,
+};
 
 use self::{
     id_only_partition_filter::{
@@ -89,10 +91,14 @@ impl LocalScheduler {
 }
 
 #[async_trait]
-impl PartitionsSource for LocalScheduler {
-    // TODO: followon PR will replace with Arc<dyn Scheduler>.get_job()
-    async fn fetch(&self) -> Vec<PartitionId> {
-        self.partitions_source.fetch().await
+impl Scheduler for LocalScheduler {
+    async fn get_job(&self) -> Vec<CompactionJob> {
+        self.partitions_source
+            .fetch()
+            .await
+            .into_iter()
+            .map(|partition_id| CompactionJob { partition_id })
+            .collect()
     }
 }
 
