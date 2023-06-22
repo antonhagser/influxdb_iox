@@ -649,7 +649,7 @@ pub async fn command(config: Config) -> Result<()> {
         compactor_scheduler_config,
         Arc::clone(&catalog),
         Arc::clone(&time_provider),
-    );
+    ).await;
 
     let compactor = create_compactor_server_type(
         &common_state,

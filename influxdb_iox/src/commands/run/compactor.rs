@@ -85,7 +85,7 @@ pub async fn command(config: Config) -> Result<(), Error> {
         config.compactor_scheduler_config,
         Arc::clone(&catalog),
         Arc::clone(&time_provider),
-    );
+    ).await;
 
     let object_store = make_object_store(config.run_config.object_store_config())
         .map_err(Error::ObjectStoreParsing)?;

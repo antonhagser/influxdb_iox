@@ -27,6 +27,8 @@ mod local_scheduler;
 pub(crate) use local_scheduler::{id_only_partition_filter::IdOnlyPartitionFilter, LocalScheduler};
 mod partitions_source;
 pub use partitions_source::*;
+mod remote_scheduler;
+pub(crate) use remote_scheduler::RemoteScheduler;
 mod scheduler;
 pub use scheduler::*;
 
@@ -40,7 +42,7 @@ use crate::local_scheduler::{
 };
 
 /// Instantiate a compaction scheduler service
-pub fn create_compactor_scheduler_service(
+pub async fn create_compactor_scheduler_service(
     scheduler_config: CompactorSchedulerConfig,
     catalog: Arc<dyn Catalog>,
     time_provider: Arc<dyn TimeProvider>,
@@ -56,7 +58,11 @@ pub fn create_compactor_scheduler_service(
             );
             Arc::new(scheduler)
         }
-        CompactorSchedulerType::Remote => unimplemented!("Remote scheduler not implemented"),
+        CompactorSchedulerType::Remote => {
+            let scheduler = RemoteScheduler::new();
+            scheduler.connect().await.expect("failed to connect to remote scheduler");
+            Arc::new(scheduler)
+        },
     }
 }
 
