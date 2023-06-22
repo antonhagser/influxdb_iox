@@ -24,7 +24,7 @@ use iox_time::TimeProvider;
 use workspace_hack as _;
 
 mod local_scheduler;
-pub(crate) use local_scheduler::LocalScheduler;
+pub(crate) use local_scheduler::{id_only_partition_filter::IdOnlyPartitionFilter, LocalScheduler};
 mod partitions_source;
 pub use partitions_source::*;
 mod scheduler;
@@ -73,6 +73,3 @@ pub fn create_test_compactor_scheduler(
         time_provider,
     ))
 }
-
-// Temporary exports. Will eventually be encapsulated in local_scheduler.
-pub use local_scheduler::id_only_partition_filter::IdOnlyPartitionFilter;
