@@ -31,6 +31,8 @@ use self::{
 pub struct LocalScheduler {
     /// The partitions source to use for scheduling.
     partitions_source: Arc<dyn PartitionsSource>,
+    /// The shard config used for generating the PartitionsSoruce.
+    shard_config: Option<ShardConfig>,
 }
 
 impl LocalScheduler {
@@ -79,7 +81,10 @@ impl LocalScheduler {
                 partitions_source,
             ));
 
-        Self { partitions_source }
+        Self {
+            partitions_source,
+            shard_config,
+        }
     }
 }
 
@@ -93,6 +98,18 @@ impl PartitionsSource for LocalScheduler {
 
 impl std::fmt::Display for LocalScheduler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "local_compaction_scheduler")
+        let (shard_cfg_n_shards, shard_cfg_shard_id) = match &self.shard_config {
+            None => (None, None),
+            Some(shard_config) => {
+                // use struct unpack so we don't forget any members
+                let ShardConfig { n_shards, shard_id } = shard_config;
+                (Some(n_shards), Some(shard_id))
+            }
+        };
+        write!(
+            f,
+            "local_compaction_scheduler(shard_cfg_n_shards={:?},shard_cfg_shard_id={:?})",
+            shard_cfg_n_shards, shard_cfg_shard_id
+        )
     }
 }

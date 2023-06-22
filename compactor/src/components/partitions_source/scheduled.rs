@@ -65,7 +65,7 @@ mod tests {
 
         assert_eq!(
             source.to_string(),
-            "scheduled_partitions_source(local_compaction_scheduler)",
+            "scheduled_partitions_source(local_compaction_scheduler(shard_cfg_n_shards=None,shard_cfg_shard_id=None))",
         );
     }
 }
