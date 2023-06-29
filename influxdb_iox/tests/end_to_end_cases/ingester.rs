@@ -255,6 +255,7 @@ async fn ingester_partition_pruning() {
 
     steps.push(Step::Custom(Box::new(move |state: &mut StepTestState| {
         async move {
+            // Filter based on partition key
             let predicate = ::predicate::Predicate::new().with_expr(col("tag1").eq(lit("v1a")));
 
             let query = IngesterQueryRequest::new(
@@ -282,6 +283,70 @@ async fn ingester_partition_pruning() {
                 "| 1.0 | v1a  | v2a  | v3b  | 1970-01-01T00:00:00.000000011Z |",
                 "| 1.0 | v1a  | v2b  | v3a  | 1970-01-01T00:00:00.000000011Z |",
                 "| 1.0 | v1a  | v2b  | v3b  | 1970-01-01T00:00:00.000000011Z |",
+                "+-----+------+------+------+--------------------------------+",
+            ];
+            assert_batches_sorted_eq!(&expected, &ingester_response.record_batches);
+
+            // Filter based on a predicate not covered by the partition key
+            let predicate = ::predicate::Predicate::new().with_expr(col("tag2").eq(lit("v2a")));
+
+            let query = IngesterQueryRequest::new(
+                state.cluster().namespace_id().await,
+                state.cluster().table_id("table1").await,
+                vec![],
+                Some(predicate),
+            );
+
+            let query: proto::IngesterQueryRequest = query.try_into().unwrap();
+            let ingester_response = state
+                .cluster()
+                .query_ingester(
+                    query.clone(),
+                    state.cluster().ingester().ingester_grpc_connection(),
+                )
+                .await
+                .unwrap();
+
+            let expected = [
+                "+-----+------+------+------+--------------------------------+",
+                "| f   | tag1 | tag2 | tag3 | time                           |",
+                "+-----+------+------+------+--------------------------------+",
+                "| 1.0 | v1a  | v2a  | v3a  | 1970-01-01T00:00:00.000000011Z |",
+                "| 1.0 | v1a  | v2a  | v3b  | 1970-01-01T00:00:00.000000011Z |",
+                "| 1.0 | v1b  | v2a  | v3a  | 1970-01-01T00:00:00.000000011Z |",
+                "| 1.0 | v1b  | v2a  | v3b  | 1970-01-01T00:00:00.000000011Z |",
+                "+-----+------+------+------+--------------------------------+",
+            ];
+            assert_batches_sorted_eq!(&expected, &ingester_response.record_batches);
+
+            // Filter based on both the partition key and additional conditions
+            let predicate = ::predicate::Predicate::new()
+                .with_expr(col("tag1").eq(lit("v1a")))
+                .with_expr(col("tag2").eq(lit("v2a")));
+
+            let query = IngesterQueryRequest::new(
+                state.cluster().namespace_id().await,
+                state.cluster().table_id("table1").await,
+                vec![],
+                Some(predicate),
+            );
+
+            let query: proto::IngesterQueryRequest = query.try_into().unwrap();
+            let ingester_response = state
+                .cluster()
+                .query_ingester(
+                    query.clone(),
+                    state.cluster().ingester().ingester_grpc_connection(),
+                )
+                .await
+                .unwrap();
+
+            let expected = [
+                "+-----+------+------+------+--------------------------------+",
+                "| f   | tag1 | tag2 | tag3 | time                           |",
+                "+-----+------+------+------+--------------------------------+",
+                "| 1.0 | v1a  | v2a  | v3a  | 1970-01-01T00:00:00.000000011Z |",
+                "| 1.0 | v1a  | v2a  | v3b  | 1970-01-01T00:00:00.000000011Z |",
                 "+-----+------+------+------+--------------------------------+",
             ];
             assert_batches_sorted_eq!(&expected, &ingester_response.record_batches);
