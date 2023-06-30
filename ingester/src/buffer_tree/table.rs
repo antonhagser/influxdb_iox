@@ -5,7 +5,10 @@ pub(crate) mod name_resolver;
 use std::{fmt::Debug, sync::Arc};
 
 use async_trait::async_trait;
-use data_types::{NamespaceId, PartitionKey, SequenceNumber, TableId};
+use data_types::{
+    partition_template::TablePartitionTemplateOverride, NamespaceId, PartitionKey, SequenceNumber,
+    TableId,
+};
 use mutable_batch::MutableBatch;
 use parking_lot::Mutex;
 use predicate::Predicate;
@@ -83,6 +86,9 @@ pub(crate) struct TableData<O> {
     // Map of partition key to its data
     partition_data: ArcMap<PartitionKey, Mutex<PartitionData>>,
 
+    // The partition template used by the table
+    partition_template: Arc<DeferredLoad<TablePartitionTemplateOverride>>,
+
     post_write_observer: Arc<O>,
 }
 
@@ -98,6 +104,7 @@ impl<O> TableData<O> {
         namespace_id: NamespaceId,
         namespace_name: Arc<DeferredLoad<NamespaceName>>,
         partition_provider: Arc<dyn PartitionProvider>,
+        partition_template: Arc<DeferredLoad<TablePartitionTemplateOverride>>,
         post_write_observer: Arc<O>,
     ) -> Self {
         Self {
@@ -107,6 +114,7 @@ impl<O> TableData<O> {
             namespace_name,
             partition_data: Default::default(),
             partition_provider,
+            partition_template,
             post_write_observer,
         }
     }
@@ -268,9 +276,9 @@ mod tests {
             post_write::mock::MockPostWriteObserver,
         },
         test_util::{
-            defer_namespace_name_1_sec, defer_table_name_1_sec, PartitionDataBuilder,
-            ARBITRARY_NAMESPACE_ID, ARBITRARY_PARTITION_KEY, ARBITRARY_TABLE_ID,
-            ARBITRARY_TABLE_NAME,
+            defer_namespace_name_1_sec, defer_partition_template_1_sec, defer_table_name_1_sec,
+            PartitionDataBuilder, ARBITRARY_NAMESPACE_ID, ARBITRARY_PARTITION_KEY,
+            ARBITRARY_TABLE_ID, ARBITRARY_TABLE_NAME,
         },
     };
 
@@ -287,6 +295,7 @@ mod tests {
             ARBITRARY_NAMESPACE_ID,
             defer_namespace_name_1_sec(),
             partition_provider,
+            defer_partition_template_1_sec(),
             Arc::new(MockPostWriteObserver::default()),
         );
 

@@ -1,6 +1,9 @@
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
-use data_types::{NamespaceId, PartitionId, PartitionKey, SequenceNumber, TableId};
+use data_types::{
+    partition_template::TablePartitionTemplateOverride, NamespaceId, PartitionId, PartitionKey,
+    SequenceNumber, TableId,
+};
 use iox_catalog::{interface::Catalog, test_helpers::arbitrary_namespace};
 use lazy_static::lazy_static;
 use mutable_batch_lp::lines_to_batches;
@@ -48,6 +51,15 @@ pub(crate) fn defer_table_name_1_sec() -> Arc<DeferredLoad<TableName>> {
     Arc::new(DeferredLoad::new(
         Duration::from_secs(1),
         async { ARBITRARY_TABLE_NAME.clone() },
+        &metric::Registry::default(),
+    ))
+}
+
+pub(crate) fn defer_partition_template_1_sec() -> Arc<DeferredLoad<TablePartitionTemplateOverride>>
+{
+    Arc::new(DeferredLoad::new(
+        Duration::from_secs(1),
+        async { todo!() }, // TODO(savage): What is an arbitrary partition tempalte? Not sure if this makes sense.
         &metric::Registry::default(),
     ))
 }
