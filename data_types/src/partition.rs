@@ -9,7 +9,7 @@ use thiserror::Error;
 
 /// Unique ID for a `Partition` during the transition from catalog-assigned sequential
 /// `PartitionId`s to deterministic `PartitionHashId`s.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TransitionPartitionId {
     /// The old catalog-assigned sequential `PartitionId`s that are in the process of being
     /// deprecated.
@@ -149,13 +149,13 @@ impl sqlx::Decode<'_, sqlx::Sqlite> for PartitionKey {
 const PARTITION_HASH_ID_SIZE_BYTES: usize = 32;
 
 /// Uniquely identify a partition based on its table ID and partition key.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, sqlx::FromRow)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::FromRow)]
 #[sqlx(transparent)]
-pub struct PartitionHashId(Arc<[u8; PARTITION_HASH_ID_SIZE_BYTES]>);
+pub struct PartitionHashId([u8; PARTITION_HASH_ID_SIZE_BYTES]);
 
 impl std::fmt::Display for PartitionHashId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        for byte in self.0.iter() {
+        for byte in &self.0 {
             write!(f, "{:02x}", byte)?;
         }
         Ok(())
@@ -184,7 +184,7 @@ impl TryFrom<&[u8]> for PartitionHashId {
                     data: data.to_vec(),
                 })?;
 
-        Ok(Self(Arc::new(data)))
+        Ok(Self(data))
     }
 }
 
@@ -209,7 +209,7 @@ impl PartitionHashId {
         inner.update(table_bytes);
 
         inner.update(partition_key.as_bytes());
-        Self(Arc::new(inner.finalize().into()))
+        Self(inner.finalize().into())
     }
 
     /// Read access to the bytes of the hash identifier.
@@ -218,7 +218,7 @@ impl PartitionHashId {
     }
 }
 
-impl<'q> sqlx::encode::Encode<'q, sqlx::Postgres> for &'q PartitionHashId {
+impl sqlx::encode::Encode<'_, sqlx::Postgres> for PartitionHashId {
     fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
         buf.extend_from_slice(self.0.as_ref());
 
@@ -226,13 +226,13 @@ impl<'q> sqlx::encode::Encode<'q, sqlx::Postgres> for &'q PartitionHashId {
     }
 }
 
-impl<'q> sqlx::encode::Encode<'q, sqlx::Sqlite> for &'q PartitionHashId {
+impl sqlx::encode::Encode<'_, sqlx::Sqlite> for PartitionHashId {
     fn encode_by_ref(
         &self,
-        args: &mut Vec<sqlx::sqlite::SqliteArgumentValue<'q>>,
+        args: &mut Vec<sqlx::sqlite::SqliteArgumentValue<'_>>,
     ) -> sqlx::encode::IsNull {
         args.push(sqlx::sqlite::SqliteArgumentValue::Blob(
-            std::borrow::Cow::Borrowed(self.0.as_ref()),
+            std::borrow::Cow::Owned(self.0.to_vec()),
         ));
 
         sqlx::encode::IsNull::No
@@ -253,7 +253,7 @@ where
     > {
         let data = <&[u8] as ::sqlx::decode::Decode<'r, DB>>::decode(value)?;
         let data: [u8; PARTITION_HASH_ID_SIZE_BYTES] = data.try_into()?;
-        Ok(Self(Arc::new(data)))
+        Ok(Self(data))
     }
 }
 
@@ -361,14 +361,13 @@ impl Partition {
     /// the database-assigned `PartitionId`.
     pub fn transition_partition_id(&self) -> TransitionPartitionId {
         self.hash_id
-            .clone()
             .map(TransitionPartitionId::Deterministic)
             .unwrap_or_else(|| TransitionPartitionId::Deprecated(self.id))
     }
 
     /// The unique hash derived from the table ID and partition key, if it exists in the catalog.
-    pub fn hash_id(&self) -> Option<&PartitionHashId> {
-        self.hash_id.as_ref()
+    pub fn hash_id(&self) -> Option<PartitionHashId> {
+        self.hash_id
     }
 
     /// The sort key for the partition, if present, structured as a `SortKey`

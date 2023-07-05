@@ -161,7 +161,7 @@ impl Context {
                 namespace_id: guard.namespace_id(),
                 table_id: guard.table_id(),
                 partition_id,
-                partition_hash_id: guard.partition_hash_id().cloned(),
+                partition_hash_id: guard.partition_hash_id(),
                 partition_key: guard.partition_key().clone(),
                 namespace_name: Arc::clone(guard.namespace_name()),
                 table: Arc::clone(guard.table()),
@@ -297,12 +297,11 @@ impl Context {
     }
 
     pub(super) fn partition_hash_id(&self) -> Option<PartitionHashId> {
-        self.partition_hash_id.clone()
+        self.partition_hash_id
     }
 
     pub(super) fn transition_partition_id(&self) -> TransitionPartitionId {
         self.partition_hash_id
-            .clone()
             .map(TransitionPartitionId::Deterministic)
             .unwrap_or_else(|| TransitionPartitionId::Deprecated(self.partition_id))
     }

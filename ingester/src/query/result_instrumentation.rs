@@ -333,7 +333,7 @@ where
 
                 // Extract all the fields of the PartitionResponse
                 let id = p.id();
-                let hash_id = p.partition_hash_id().cloned();
+                let hash_id = p.partition_hash_id();
                 let persist_count = p.completed_persistence_count();
 
                 // And wrap the underlying stream of RecordBatch for this

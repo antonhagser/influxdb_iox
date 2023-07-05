@@ -40,8 +40,8 @@ impl PartitionResponse {
         self.id
     }
 
-    pub(crate) fn partition_hash_id(&self) -> Option<&PartitionHashId> {
-        self.partition_hash_id.as_ref()
+    pub(crate) fn partition_hash_id(&self) -> Option<PartitionHashId> {
+        self.partition_hash_id
     }
 
     pub(crate) fn completed_persistence_count(&self) -> u64 {

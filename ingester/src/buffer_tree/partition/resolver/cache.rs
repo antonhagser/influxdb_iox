@@ -106,7 +106,7 @@ impl<T> PartitionCache<T> {
             HashMap::<PartitionKey, HashMap<TableId, (PartitionId, Option<PartitionHashId>)>>::new(
             );
         for p in partitions.into_iter() {
-            let hash_id = p.hash_id().cloned();
+            let hash_id = p.hash_id();
             entries
                 .entry(p.partition_key)
                 .or_default()

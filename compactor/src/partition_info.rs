@@ -46,7 +46,6 @@ impl PartitionInfo {
     /// the database-assigned `PartitionId`.
     pub fn transition_partition_id(&self) -> TransitionPartitionId {
         self.partition_hash_id
-            .clone()
             .map(TransitionPartitionId::Deterministic)
             .unwrap_or_else(|| TransitionPartitionId::Deprecated(self.partition_id))
     }

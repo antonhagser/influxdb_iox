@@ -588,7 +588,7 @@ impl PartitionRepo for MemTxn {
 
     async fn get_by_hash_id(
         &mut self,
-        partition_hash_id: &PartitionHashId,
+        partition_hash_id: PartitionHashId,
     ) -> Result<Option<Partition>> {
         let stage = self.stage();
 

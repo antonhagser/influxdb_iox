@@ -856,7 +856,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
         .bind(key) // $1
         .bind(TRANSITION_SHARD_ID) // $2
         .bind(table_id) // $3
-        .bind(&hash_id) // $4
+        .bind(hash_id) // $4
         .fetch_one(self.inner.get_mut())
         .await
         .map_err(|e| {
@@ -893,7 +893,7 @@ WHERE id = $1;
 
     async fn get_by_hash_id(
         &mut self,
-        partition_hash_id: &PartitionHashId,
+        partition_hash_id: PartitionHashId,
     ) -> Result<Option<Partition>> {
         let rec = sqlx::query_as::<_, PartitionPod>(
             r#"
@@ -1652,7 +1652,7 @@ mod tests {
             .await
             .expect("should create OK");
 
-        assert_eq!(a.hash_id().unwrap(), &hash_id);
+        assert_eq!(a.hash_id().unwrap(), hash_id);
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent.
         let b = repos
@@ -1672,7 +1672,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(table_partitions.len(), 1);
-        assert_eq!(table_partitions[0].hash_id().unwrap(), &hash_id);
+        assert_eq!(table_partitions[0].hash_id().unwrap(), hash_id);
     }
 
     #[tokio::test]

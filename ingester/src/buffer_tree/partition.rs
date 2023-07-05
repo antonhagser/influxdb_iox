@@ -286,13 +286,12 @@ impl PartitionData {
         self.partition_id
     }
 
-    pub(crate) fn partition_hash_id(&self) -> Option<&PartitionHashId> {
-        self.partition_hash_id.as_ref()
+    pub(crate) fn partition_hash_id(&self) -> Option<PartitionHashId> {
+        self.partition_hash_id
     }
 
     pub(crate) fn transition_partition_id(&self) -> TransitionPartitionId {
         self.partition_hash_id
-            .clone()
             .map(TransitionPartitionId::Deterministic)
             .unwrap_or_else(|| TransitionPartitionId::Deprecated(self.partition_id))
     }

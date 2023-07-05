@@ -349,7 +349,7 @@ fn encode_response(
 ) -> impl Stream<Item = Result<FlightData, FlightError>> {
     response.into_partition_stream().flat_map(move |partition| {
         let partition_id = partition.id();
-        let partition_hash_id = partition.partition_hash_id().cloned();
+        let partition_hash_id = partition.partition_hash_id();
         let completed_persistence_count = partition.completed_persistence_count();
 
         // prefix payload data w/ metadata for that particular partition
@@ -474,7 +474,7 @@ mod tests {
                         batch4.clone(),
                     ],
                     PartitionId::new(2),
-                    partition_hash_id.clone(),
+                    partition_hash_id,
                     42,
                 )]),
             )))),

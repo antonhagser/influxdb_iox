@@ -375,7 +375,7 @@ pub trait PartitionRepo: Send + Sync {
     /// get partition by deterministic hash ID
     async fn get_by_hash_id(
         &mut self,
-        partition_hash_id: &PartitionHashId,
+        partition_hash_id: PartitionHashId,
     ) -> Result<Option<Partition>>;
 
     /// return the partitions by table id
@@ -1513,7 +1513,7 @@ pub(crate) mod test_helpers {
             .is_none());
         assert!(repos
             .partitions()
-            .get_by_hash_id(&PartitionHashId::new(
+            .get_by_hash_id(PartitionHashId::new(
                 TableId::new(i64::MAX),
                 &PartitionKey::from("arbitrary")
             ))

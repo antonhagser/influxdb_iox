@@ -277,7 +277,7 @@ where
                 let mut p = p.lock();
                 (
                     p.partition_id(),
-                    p.partition_hash_id().cloned(),
+                    p.partition_hash_id(),
                     p.completed_persistence_count(),
                     p.get_query_data(),
                     p.partition_key().clone(),
