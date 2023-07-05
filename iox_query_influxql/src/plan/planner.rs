@@ -4241,6 +4241,11 @@ mod test {
                 TableScan: all_types [bool_field:Boolean;N, f64_field:Float64;N, i64_field:Int64;N, str_field:Utf8;N, tag0:Dictionary(Int32, Utf8);N, tag1:Dictionary(Int32, Utf8);N, time:Timestamp(Nanosecond, None), u64_field:UInt64;N]
             "###);
         }
+
+        #[test]
+        fn test_idpe_issue_17842() {
+            assert_snapshot!(plan("SELECT last(host) AS host, first(f64_field) AS f64_field FROM cpu GROUP BY host"), @"EmptyRelation [iox::measurement:Dictionary(Int32, Utf8)]");
+        }
     }
 
     /// Tests to validate InfluxQL `SELECT` statements that project aggregate functions, such as `COUNT` or `SUM`.
