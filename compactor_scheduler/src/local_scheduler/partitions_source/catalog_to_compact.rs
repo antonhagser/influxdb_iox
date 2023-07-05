@@ -66,13 +66,18 @@ impl Display for CatalogToCompactPartitionsSource {
 #[async_trait]
 impl PartitionsSource for CatalogToCompactPartitionsSource {
     async fn fetch(&self) -> Vec<PartitionId> {
+        // maximum_time = most recent time, in the time window. Largest.
+        // minimum_time = oldest time, in the time window. Smallest.
+
         let mut minimum_time = self.time_provider.now() - self.min_threshold;
         let maximum_time: Option<Time>;
 
         // scope the locking to just maintenance of last_maximum_time, not the query
         {
             // we're going check the time range we'd like to query for against the end time of the last query.
-            let mut last = self.last_maximum_time.lock().unwrap();
+            let mut last_used_max_time = self.last_maximum_time.lock().unwrap();
+
+            let minimum_time_for_largest_window = self.time_provider.now() - self.min_threshold * 3;
 
             // query for partitions with activity since the last query.  We shouldn't query for a time range
             // we've already covered.  So if the prior query was 2m ago, and the query covered 10m, ending at
@@ -80,20 +85,22 @@ impl PartitionsSource for CatalogToCompactPartitionsSource {
             // that creates busy-work that will spam the catalog with more queries to determine no compaction
             // nneded.  But we also don't want to query so far back in time that we get all partitions, so the
             // lookback is limited to 3x the configured threshold.
-            if minimum_time < *last || minimum_time.sub(*last) < self.min_threshold * 3 {
+            let current_window_overlaps_last_window = minimum_time < *last_used_max_time;
+            let window_from_last_is_smaller_than_largest_window = minimum_time.sub(*last_used_max_time) < self.min_threshold * 3;
+            if current_window_overlaps_last_window || window_from_last_is_smaller_than_largest_window {
                 // the end of the last query is less than 3x our configured lookback, so we can query everything
                 // since the last query.
-                minimum_time = *last;
+                minimum_time = *last_used_max_time;
             } else {
                 // end of the last query says we're skiping a lot.  We should limit how far we lookback to avoid
                 // returning all partitions, so we'll just backup 3x the configured lookback.
                 // this might skip something (until cold compaction), but we need a limit in how far we look back.
-                minimum_time = self.time_provider.now() - self.min_threshold * 3;
+                minimum_time = minimum_time_for_largest_window;
             }
             maximum_time = self.max_threshold.map(|max| self.time_provider.now() - max);
 
             // save the maximum time used in this query to self.last_maximum_time
-            *last = maximum_time.unwrap_or(self.time_provider.now());
+            *last_used_max_time = maximum_time.unwrap_or(self.time_provider.now());
         }
 
         Backoff::new(&self.backoff_config)
