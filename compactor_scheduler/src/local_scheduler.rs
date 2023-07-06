@@ -11,6 +11,7 @@ use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use backoff::BackoffConfig;
+use data_types::PartitionId;
 use iox_catalog::interface::Catalog;
 use iox_time::TimeProvider;
 use observability_deps::tracing::{info, warn};
@@ -57,7 +58,7 @@ pub(crate) struct LocalScheduler {
     /// Commits changes (i.e. deletion and creation) to the catalog
     pub(crate) commit: Arc<dyn Commit>,
     /// The partitions source to use for scheduling.
-    partitions_source: Arc<dyn PartitionsSource>,
+    partitions_source: Arc<dyn PartitionsSource<Output = PartitionId>>,
     /// The actions to take when a partition is done.
     ///
     /// Includes partition (PartitionId) tracking of uniqueness and throttling.
@@ -113,26 +114,27 @@ impl LocalScheduler {
         backoff_config: BackoffConfig,
         catalog: Arc<dyn Catalog>,
         time_provider: Arc<dyn TimeProvider>,
-    ) -> Arc<dyn PartitionsSource> {
+    ) -> Arc<dyn PartitionsSource<Output = PartitionId>> {
         let shard_config = config.shard_config;
-        let partitions_source: Arc<dyn PartitionsSource> = match &config.partitions_source_config {
-            PartitionsSourceConfig::CatalogRecentWrites { threshold } => {
-                Arc::new(CatalogToCompactPartitionsSource::new(
+        let partitions_source: Arc<dyn PartitionsSource<Output = PartitionId>> =
+            match &config.partitions_source_config {
+                PartitionsSourceConfig::CatalogRecentWrites { threshold } => {
+                    Arc::new(CatalogToCompactPartitionsSource::new(
+                        backoff_config,
+                        Arc::clone(&catalog),
+                        *threshold,
+                        None, // Recent writes is `threshold` ago to now
+                        time_provider,
+                    ))
+                }
+                PartitionsSourceConfig::CatalogAll => Arc::new(CatalogAllPartitionsSource::new(
                     backoff_config,
                     Arc::clone(&catalog),
-                    *threshold,
-                    None, // Recent writes is `threshold` ago to now
-                    time_provider,
-                ))
-            }
-            PartitionsSourceConfig::CatalogAll => Arc::new(CatalogAllPartitionsSource::new(
-                backoff_config,
-                Arc::clone(&catalog),
-            )),
-            PartitionsSourceConfig::Fixed(ids) => {
-                Arc::new(MockPartitionsSource::new(ids.iter().cloned().collect()))
-            }
-        };
+                )),
+                PartitionsSourceConfig::Fixed(ids) => {
+                    Arc::new(MockPartitionsSource::new(ids.iter().cloned().collect()))
+                }
+            };
 
         let mut id_only_partition_filters: Vec<Arc<dyn IdOnlyPartitionFilter>> = vec![];
         if let Some(shard_config) = &shard_config {
@@ -152,15 +154,16 @@ impl LocalScheduler {
         ))
     }
 
+    #[allow(clippy::type_complexity)]
     fn build_partition_done_sink(
-        partitions_source: Arc<dyn PartitionsSource>,
+        partitions_source: Arc<dyn PartitionsSource<Output = PartitionId>>,
         commit: Arc<dyn Commit>,
         backoff_config: BackoffConfig,
         catalog: Arc<dyn Catalog>,
         time_provider: Arc<dyn TimeProvider>,
         shadow_mode: bool,
     ) -> (
-        Arc<dyn PartitionsSource>,
+        Arc<dyn PartitionsSource<Output = PartitionId>>,
         Arc<dyn Commit>,
         Arc<dyn PartitionDoneSink>,
     ) {

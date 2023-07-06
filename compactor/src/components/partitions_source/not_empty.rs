@@ -2,7 +2,6 @@ use std::{fmt::Display, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use compactor_scheduler::PartitionsSource;
-use data_types::PartitionId;
 use iox_time::TimeProvider;
 
 #[derive(Debug)]
@@ -38,11 +37,14 @@ where
 }
 
 #[async_trait]
-impl<T> PartitionsSource for NotEmptyPartitionsSourceWrapper<T>
+impl<T, O> PartitionsSource for NotEmptyPartitionsSourceWrapper<T>
 where
-    T: PartitionsSource,
+    T: PartitionsSource<Output = O>,
+    O: Sized + Send,
 {
-    async fn fetch(&self) -> Vec<PartitionId> {
+    type Output = O;
+
+    async fn fetch(&self) -> Vec<Self::Output> {
         loop {
             let res = self.inner.fetch().await;
             if !res.is_empty() {
@@ -57,6 +59,7 @@ where
 mod tests {
     use compactor_scheduler::MockPartitionsSource;
     use compactor_test_utils::AssertFutureExt;
+    use data_types::PartitionId;
     use iox_time::{MockProvider, Time};
 
     use super::*;

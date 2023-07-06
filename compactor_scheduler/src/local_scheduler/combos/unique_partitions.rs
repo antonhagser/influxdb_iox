@@ -94,10 +94,12 @@ where
 #[async_trait]
 impl<T1, T2> PartitionsSource for UniquePartionsSourceWrapper<T1, T2>
 where
-    T1: PartitionsSource,
+    T1: PartitionsSource<Output = PartitionId>,
     T2: PartitionDoneSink,
 {
-    async fn fetch(&self) -> Vec<PartitionId> {
+    type Output = PartitionId;
+
+    async fn fetch(&self) -> Vec<Self::Output> {
         let res = self.inner_source.fetch().await;
 
         let (unique, duplicates) = {

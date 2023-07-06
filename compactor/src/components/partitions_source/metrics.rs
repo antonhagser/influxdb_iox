@@ -2,7 +2,6 @@ use std::fmt::Display;
 
 use async_trait::async_trait;
 use compactor_scheduler::PartitionsSource;
-use data_types::PartitionId;
 use metric::{Registry, U64Counter};
 
 const METRIC_NAME_PARTITIONS_FETCH_COUNT: &str = "iox_compactor_partitions_fetch_count";
@@ -54,11 +53,14 @@ where
 }
 
 #[async_trait]
-impl<T> PartitionsSource for MetricsPartitionsSourceWrapper<T>
+impl<T, O> PartitionsSource for MetricsPartitionsSourceWrapper<T>
 where
-    T: PartitionsSource,
+    T: PartitionsSource<Output = O>,
+    O: Sized + Send,
 {
-    async fn fetch(&self) -> Vec<PartitionId> {
+    type Output = O;
+
+    async fn fetch(&self) -> Vec<Self::Output> {
         let partitions = self.inner.fetch().await;
         self.partitions_fetch_counter.inc(1);
         self.partitions_counter.inc(partitions.len() as u64);
@@ -69,6 +71,7 @@ where
 #[cfg(test)]
 mod tests {
     use compactor_scheduler::MockPartitionsSource;
+    use data_types::PartitionId;
     use metric::assert_counter;
 
     use super::*;

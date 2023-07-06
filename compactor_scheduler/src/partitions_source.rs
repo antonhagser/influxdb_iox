@@ -9,12 +9,15 @@ use data_types::PartitionId;
 /// A source of partitions, noted by [`PartitionId`](data_types::PartitionId), that may potentially need compacting.
 #[async_trait]
 pub trait PartitionsSource: Debug + Display + Send + Sync {
-    /// Get partition IDs.
+    /// The type of partition returned by this source.
+    type Output;
+
+    /// Get partitions.
     ///
     /// This method performs retries.
     ///
     /// This should only perform basic, efficient filtering. It MUST NOT inspect individual parquet files.
-    async fn fetch(&self) -> Vec<PartitionId>;
+    async fn fetch(&self) -> Vec<Self::Output>;
 }
 
 #[async_trait]
@@ -22,7 +25,9 @@ impl<T> PartitionsSource for Arc<T>
 where
     T: PartitionsSource + ?Sized,
 {
-    async fn fetch(&self) -> Vec<PartitionId> {
+    type Output = T::Output;
+
+    async fn fetch(&self) -> Vec<Self::Output> {
         self.as_ref().fetch().await
     }
 }
@@ -60,7 +65,9 @@ mod mock {
 
     #[async_trait]
     impl PartitionsSource for MockPartitionsSource {
-        async fn fetch(&self) -> Vec<PartitionId> {
+        type Output = PartitionId;
+
+        async fn fetch(&self) -> Vec<Self::Output> {
             self.partitions.lock().expect("not poisoned").clone()
         }
     }

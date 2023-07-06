@@ -2,7 +2,6 @@ use std::fmt::Display;
 
 use async_trait::async_trait;
 use compactor_scheduler::PartitionsSource;
-use data_types::PartitionId;
 use observability_deps::tracing::{info, warn};
 
 #[derive(Debug)]
@@ -32,11 +31,14 @@ where
 }
 
 #[async_trait]
-impl<T> PartitionsSource for LoggingPartitionsSourceWrapper<T>
+impl<T, O> PartitionsSource for LoggingPartitionsSourceWrapper<T>
 where
-    T: PartitionsSource,
+    T: PartitionsSource<Output = O>,
+    O: Sized + Send,
 {
-    async fn fetch(&self) -> Vec<PartitionId> {
+    type Output = O;
+
+    async fn fetch(&self) -> Vec<Self::Output> {
         let partitions = self.inner.fetch().await;
         info!(n_partitions = partitions.len(), "Fetch partitions",);
         if partitions.is_empty() {
@@ -49,6 +51,7 @@ where
 #[cfg(test)]
 mod tests {
     use compactor_scheduler::MockPartitionsSource;
+    use data_types::PartitionId;
     use test_helpers::tracing::TracingCapture;
 
     use super::*;

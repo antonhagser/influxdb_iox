@@ -41,10 +41,12 @@ where
 #[async_trait]
 impl<T, F> PartitionsSource for FilterPartitionsSourceWrapper<T, F>
 where
-    T: PartitionsSource,
+    T: PartitionsSource<Output = PartitionId>,
     F: IdOnlyPartitionFilter,
 {
-    async fn fetch(&self) -> Vec<PartitionId> {
+    type Output = PartitionId;
+
+    async fn fetch(&self) -> Vec<Self::Output> {
         self.inner
             .fetch()
             .await

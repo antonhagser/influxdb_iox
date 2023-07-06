@@ -65,7 +65,9 @@ impl Display for CatalogToCompactPartitionsSource {
 
 #[async_trait]
 impl PartitionsSource for CatalogToCompactPartitionsSource {
-    async fn fetch(&self) -> Vec<PartitionId> {
+    type Output = PartitionId;
+
+    async fn fetch(&self) -> Vec<Self::Output> {
         let mut minimum_time = self.time_provider.now() - self.min_threshold;
         let maximum_time: Option<Time>;
 

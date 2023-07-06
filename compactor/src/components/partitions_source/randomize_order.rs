@@ -2,7 +2,6 @@ use std::fmt::Display;
 
 use async_trait::async_trait;
 use compactor_scheduler::PartitionsSource;
-use data_types::PartitionId;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 #[derive(Debug)]
@@ -33,11 +32,14 @@ where
 }
 
 #[async_trait]
-impl<T> PartitionsSource for RandomizeOrderPartitionsSourcesWrapper<T>
+impl<T, O> PartitionsSource for RandomizeOrderPartitionsSourcesWrapper<T>
 where
-    T: PartitionsSource,
+    T: PartitionsSource<Output = O>,
+    O: Sized + Send,
 {
-    async fn fetch(&self) -> Vec<PartitionId> {
+    type Output = O;
+
+    async fn fetch(&self) -> Vec<Self::Output> {
         let mut partitions = self.inner.fetch().await;
         let mut rng = StdRng::seed_from_u64(self.seed);
         partitions.shuffle(&mut rng);
@@ -48,6 +50,7 @@ where
 #[cfg(test)]
 mod tests {
     use compactor_scheduler::MockPartitionsSource;
+    use data_types::PartitionId;
 
     use super::*;
 

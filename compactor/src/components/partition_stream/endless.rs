@@ -36,7 +36,7 @@ where
 
 impl<T> PartitionStream for EndlessPartititionStream<T>
 where
-    T: PartitionsSource,
+    T: PartitionsSource<Output = PartitionId>,
 {
     fn stream(&self) -> BoxStream<'_, PartitionId> {
         let source = Arc::clone(&self.source);

@@ -17,7 +17,9 @@ impl ScheduledPartitionsSource {
 
 #[async_trait]
 impl PartitionsSource for ScheduledPartitionsSource {
-    async fn fetch(&self) -> Vec<PartitionId> {
+    type Output = PartitionId;
+
+    async fn fetch(&self) -> Vec<Self::Output> {
         let job: Vec<CompactionJob> = self.scheduler.get_jobs().await;
         job.into_iter().map(|job| job.partition_id).collect()
     }

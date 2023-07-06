@@ -33,7 +33,9 @@ impl Display for CatalogAllPartitionsSource {
 
 #[async_trait]
 impl PartitionsSource for CatalogAllPartitionsSource {
-    async fn fetch(&self) -> Vec<PartitionId> {
+    type Output = PartitionId;
+
+    async fn fetch(&self) -> Vec<Self::Output> {
         Backoff::new(&self.backoff_config)
             .retry_all_errors("list_ids", || async {
                 self.catalog
