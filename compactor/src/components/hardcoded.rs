@@ -181,7 +181,7 @@ fn make_partitions_source_commit_partition_sink(
 fn make_partition_stream(
     config: &Config,
     partitions_source: Arc<dyn PartitionsSource<Output = PartitionId>>,
-) -> Arc<dyn PartitionStream> {
+) -> Arc<dyn PartitionStream<Output = PartitionId>> {
     if config.process_once {
         Arc::new(OncePartititionStream::new(partitions_source))
     } else {

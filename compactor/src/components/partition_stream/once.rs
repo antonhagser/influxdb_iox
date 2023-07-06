@@ -1,22 +1,23 @@
 use std::{fmt::Display, sync::Arc};
 
 use compactor_scheduler::PartitionsSource;
-use data_types::PartitionId;
 use futures::{stream::BoxStream, StreamExt};
 
 use super::PartitionStream;
 
 #[derive(Debug)]
-pub struct OncePartititionStream<T>
+pub struct OncePartititionStream<T, P>
 where
-    T: PartitionsSource,
+    T: PartitionsSource<Output = P>,
+    P: std::fmt::Debug + Send,
 {
     source: Arc<T>,
 }
 
-impl<T> OncePartititionStream<T>
+impl<T, P> OncePartititionStream<T, P>
 where
-    T: PartitionsSource,
+    T: PartitionsSource<Output = P>,
+    P: std::fmt::Debug + Send,
 {
     pub fn new(source: T) -> Self {
         Self {
@@ -25,20 +26,24 @@ where
     }
 }
 
-impl<T> Display for OncePartititionStream<T>
+impl<T, P> Display for OncePartititionStream<T, P>
 where
-    T: PartitionsSource,
+    T: PartitionsSource<Output = P>,
+    P: std::fmt::Debug + Send,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "once({})", self.source)
     }
 }
 
-impl<T> PartitionStream for OncePartititionStream<T>
+impl<T, P> PartitionStream for OncePartititionStream<T, P>
 where
-    T: PartitionsSource<Output = PartitionId>,
+    T: PartitionsSource<Output = P>,
+    P: std::fmt::Debug + Send,
 {
-    fn stream(&self) -> BoxStream<'_, PartitionId> {
+    type Output = P;
+
+    fn stream(&self) -> BoxStream<'_, Self::Output> {
         let source = Arc::clone(&self.source);
         futures::stream::once(async move { futures::stream::iter(source.fetch().await) })
             .flatten()
@@ -49,6 +54,7 @@ where
 #[cfg(test)]
 mod tests {
     use compactor_scheduler::MockPartitionsSource;
+    use data_types::PartitionId;
 
     use super::*;
 

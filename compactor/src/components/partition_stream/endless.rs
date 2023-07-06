@@ -1,22 +1,23 @@
 use std::{collections::VecDeque, fmt::Display, sync::Arc};
 
 use compactor_scheduler::PartitionsSource;
-use data_types::PartitionId;
 use futures::{stream::BoxStream, StreamExt};
 
 use super::PartitionStream;
 
 #[derive(Debug)]
-pub struct EndlessPartititionStream<T>
+pub struct EndlessPartititionStream<T, P>
 where
-    T: PartitionsSource,
+    T: PartitionsSource<Output = P>,
+    P: std::fmt::Debug + Send,
 {
     source: Arc<T>,
 }
 
-impl<T> EndlessPartititionStream<T>
+impl<T, P> EndlessPartititionStream<T, P>
 where
-    T: PartitionsSource,
+    T: PartitionsSource<Output = P>,
+    P: std::fmt::Debug + Send,
 {
     pub fn new(source: T) -> Self {
         Self {
@@ -25,20 +26,24 @@ where
     }
 }
 
-impl<T> Display for EndlessPartititionStream<T>
+impl<T, P> Display for EndlessPartititionStream<T, P>
 where
-    T: PartitionsSource,
+    T: PartitionsSource<Output = P>,
+    P: std::fmt::Debug + Send,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "endless({})", self.source)
     }
 }
 
-impl<T> PartitionStream for EndlessPartititionStream<T>
+impl<T, P> PartitionStream for EndlessPartititionStream<T, P>
 where
-    T: PartitionsSource<Output = PartitionId>,
+    T: PartitionsSource<Output = P>,
+    P: std::fmt::Debug + Send,
 {
-    fn stream(&self) -> BoxStream<'_, PartitionId> {
+    type Output = P;
+
+    fn stream(&self) -> BoxStream<'_, Self::Output> {
         let source = Arc::clone(&self.source);
 
         // Note: we use a VecDeque as a buffer so we can preserve the order and cheaply remove the first element without
@@ -47,8 +52,8 @@ where
             let source = Arc::clone(&source);
             async move {
                 loop {
-                    if let Some(p_id) = buffer.pop_front() {
-                        return Some((p_id, buffer));
+                    if let Some(partition) = buffer.pop_front() {
+                        return Some((partition, buffer));
                     }
 
                     // fetch new data
@@ -63,6 +68,7 @@ where
 #[cfg(test)]
 mod tests {
     use compactor_scheduler::MockPartitionsSource;
+    use data_types::PartitionId;
 
     use super::*;
 
