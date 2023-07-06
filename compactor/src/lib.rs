@@ -201,7 +201,8 @@
     clippy::clone_on_ref_ptr,
     clippy::todo,
     clippy::dbg_macro,
-    unused_crate_dependencies
+    unused_crate_dependencies,
+    clippy::unwrap_used
 )]
 #![allow(rustdoc::private_intra_doc_links)]
 

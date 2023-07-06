@@ -73,7 +73,10 @@ impl PartitionsSource for CatalogToCompactPartitionsSource {
         // scope the locking to just maintenance of last_maximum_time, not the query
         {
             // we're going check the time range we'd like to query for against the end time of the last query.
-            let mut last = self.last_maximum_time.lock().unwrap();
+            let mut last = self
+                .last_maximum_time
+                .lock()
+                .expect("last_maximum_time mutex poisoned");
 
             // query for partitions with activity since the last query.  We shouldn't query for a time range
             // we've already covered.  So if the prior query was 2m ago, and the query covered 10m, ending at
