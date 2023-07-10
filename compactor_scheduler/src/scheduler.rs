@@ -60,7 +60,7 @@ impl std::fmt::Display for SchedulerConfig {
 }
 
 /// Job assignment for a given partition.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CompactionJob {
     #[allow(dead_code)]
     /// Unique identifier for this job.

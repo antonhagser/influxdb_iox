@@ -5,9 +5,9 @@
 use std::{sync::Arc, time::Duration};
 
 use compactor_scheduler::{
-    create_scheduler, Commit, PartitionDoneSink, PartitionsSource, Scheduler,
+    create_scheduler, Commit, CompactionJob, PartitionDoneSink, PartitionsSource, Scheduler,
 };
-use data_types::{CompactionLevel, PartitionId};
+use data_types::CompactionLevel;
 use object_store::memory::InMemory;
 
 use crate::{config::Config, error::ErrorKind, object_store::ignore_writes::IgnoreWrites};
@@ -120,7 +120,7 @@ fn make_partitions_source_commit_partition_sink(
     config: &Config,
     scheduler: Arc<dyn Scheduler>,
 ) -> (
-    Arc<dyn PartitionsSource<Output = PartitionId>>,
+    Arc<dyn PartitionsSource<Output = CompactionJob>>,
     Arc<dyn Commit>,
     Arc<dyn PartitionDoneSink>,
 ) {
@@ -162,26 +162,26 @@ fn make_partitions_source_commit_partition_sink(
             RandomizeOrderPartitionsSourcesWrapper::new(partitions_source, 1234),
             &config.metric_registry,
         ));
-    let partitions_source: Arc<dyn PartitionsSource<Output = PartitionId>> = if config.process_once
-    {
-        // do not wrap into the "not empty" filter because we do NOT wanna throttle in this case
-        // but just exit early
-        Arc::new(partitions_source)
-    } else {
-        Arc::new(NotEmptyPartitionsSourceWrapper::new(
-            partitions_source,
-            Duration::from_secs(5),
-            Arc::clone(&config.time_provider),
-        ))
-    };
+    let partitions_source: Arc<dyn PartitionsSource<Output = CompactionJob>> =
+        if config.process_once {
+            // do not wrap into the "not empty" filter because we do NOT wanna throttle in this case
+            // but just exit early
+            Arc::new(partitions_source)
+        } else {
+            Arc::new(NotEmptyPartitionsSourceWrapper::new(
+                partitions_source,
+                Duration::from_secs(5),
+                Arc::clone(&config.time_provider),
+            ))
+        };
 
     (partitions_source, Arc::new(commit), partition_done_sink)
 }
 
 fn make_partition_stream(
     config: &Config,
-    partitions_source: Arc<dyn PartitionsSource<Output = PartitionId>>,
-) -> Arc<dyn PartitionStream<Output = PartitionId>> {
+    partitions_source: Arc<dyn PartitionsSource<Output = CompactionJob>>,
+) -> Arc<dyn PartitionStream<Output = CompactionJob>> {
     if config.process_once {
         Arc::new(OncePartititionStream::new(partitions_source))
     } else {

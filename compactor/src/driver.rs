@@ -1,5 +1,6 @@
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
+use compactor_scheduler::CompactionJob;
 use data_types::{CompactionLevel, ParquetFile, ParquetFileParams, PartitionId};
 use futures::{stream, StreamExt, TryStreamExt};
 use observability_deps::tracing::info;
@@ -31,11 +32,11 @@ pub async fn compact(
     components
         .partition_stream
         .stream()
-        .map(|partition_id| {
+        .map(|job| {
             let components = Arc::clone(components);
 
             compact_partition(
-                partition_id,
+                Arc::new(job),
                 partition_timeout,
                 Arc::clone(&df_semaphore),
                 components,
@@ -47,11 +48,12 @@ pub async fn compact(
 }
 
 async fn compact_partition(
-    partition_id: PartitionId,
+    job: Arc<CompactionJob>,
     partition_timeout: Duration,
     df_semaphore: Arc<InstrumentedAsyncSemaphore>,
     components: Arc<Components>,
 ) {
+    let partition_id = Arc::clone(&job).partition_id;
     info!(partition_id = partition_id.get(), "compact partition",);
     let scratchpad = components.scratchpad_gen.pad();
 
@@ -60,7 +62,7 @@ async fn compact_partition(
         let scratchpad = Arc::clone(&scratchpad);
         async {
             try_compact_partition(
-                partition_id,
+                job,
                 df_semaphore,
                 components,
                 scratchpad,
@@ -184,12 +186,13 @@ async fn compact_partition(
 ///   . If there are no L0s files in the partition, the first round can just compact L1s and L2s to L2s
 ///   . Round 2 happens or not depends on the stop condition
 async fn try_compact_partition(
-    partition_id: PartitionId,
+    job: Arc<CompactionJob>,
     df_semaphore: Arc<InstrumentedAsyncSemaphore>,
     components: Arc<Components>,
     scratchpad_ctx: Arc<dyn Scratchpad>,
     transmit_progress_signal: Sender<bool>,
 ) -> Result<(), DynError> {
+    let partition_id = job.partition_id;
     let mut files = components.partition_files_source.fetch(partition_id).await;
     let partition_info = components.partition_info_source.fetch(partition_id).await?;
     let transmit_progress_signal = Arc::new(transmit_progress_signal);
@@ -239,10 +242,11 @@ async fn try_compact_partition(
                 let df_semaphore = Arc::clone(&df_semaphore);
                 let transmit_progress_signal = Arc::clone(&transmit_progress_signal);
                 let scratchpad = Arc::clone(&scratchpad_ctx);
+                let job = Arc::clone(&job);
 
                 async move {
                     execute_branch(
-                        partition_id,
+                        job,
                         branch,
                         df_semaphore,
                         components,
@@ -265,7 +269,7 @@ async fn try_compact_partition(
 /// Compact or split given files
 #[allow(clippy::too_many_arguments)]
 async fn execute_branch(
-    partition_id: PartitionId,
+    job: Arc<CompactionJob>,
     branch: Vec<ParquetFile>,
     df_semaphore: Arc<InstrumentedAsyncSemaphore>,
     components: Arc<Components>,
@@ -358,7 +362,7 @@ async fn execute_branch(
     let files_to_delete = split_or_compact.into_files();
     let (created_files, upgraded_files) = update_catalog(
         Arc::clone(&components),
-        partition_id,
+        job.partition_id,
         saved_parquet_file_state,
         files_to_delete,
         upgrade,

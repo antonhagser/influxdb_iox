@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use compactor_scheduler::{Commit, PartitionDoneSink};
-use data_types::PartitionId;
+use compactor_scheduler::{Commit, CompactionJob, PartitionDoneSink};
 
 use self::{
     changed_files_filter::ChangedFilesFilter, df_plan_exec::DataFusionPlanExec,
@@ -49,7 +48,7 @@ pub mod timeout;
 #[derive(Debug, Clone)]
 pub struct Components {
     /// Source of partitions for the compactor to compact
-    pub partition_stream: Arc<dyn PartitionStream<Output = PartitionId>>,
+    pub partition_stream: Arc<dyn PartitionStream<Output = CompactionJob>>,
     /// Source of information about a partition neededed for compaction
     pub partition_info_source: Arc<dyn PartitionInfoSource>,
     /// Source of files in a partition for compaction
