@@ -80,6 +80,12 @@ impl CompactionJob {
     }
 }
 
+impl From<CompactionJob> for PartitionId {
+    fn from(job: CompactionJob) -> Self {
+        job.partition_id
+    }
+}
+
 /// Commit update for a given partition.
 #[derive(Debug)]
 pub struct CommitUpdate {

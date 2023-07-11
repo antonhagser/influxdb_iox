@@ -12,7 +12,7 @@ use crate::error::{DynError, ErrorKind, ErrorKindExt};
 #[derive(Debug)]
 pub struct ErrorKindPartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     kind: HashSet<ErrorKind>,
     inner: T,
@@ -21,7 +21,7 @@ where
 
 impl<T> ErrorKindPartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     pub fn new(inner: T, kind: HashSet<ErrorKind>, scheduler: Arc<dyn Scheduler>) -> Self {
         Self {
@@ -34,7 +34,7 @@ where
 
 impl<T> Display for ErrorKindPartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut kinds = self.kind.iter().copied().collect::<Vec<_>>();
@@ -44,9 +44,9 @@ where
 }
 
 #[async_trait]
-impl<T> PartitionDoneSink for ErrorKindPartitionDoneSinkWrapper<T>
+impl<T> PartitionDoneSink<PartitionId> for ErrorKindPartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     async fn record(&self, partition: PartitionId, res: Result<(), DynError>) {
         match res {

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use compactor_scheduler::{Commit, CompactionJob, PartitionDoneSink};
+use data_types::PartitionId;
 
 use self::{
     changed_files_filter::ChangedFilesFilter, df_plan_exec::DataFusionPlanExec,
@@ -60,7 +61,7 @@ pub struct Components {
     /// condition to avoid running out of resources during compaction
     pub post_classification_partition_filter: Arc<dyn PostClassificationPartitionFilter>,
     /// Records "partition is done" status for given partition.
-    pub partition_done_sink: Arc<dyn PartitionDoneSink>,
+    pub partition_done_sink: Arc<dyn PartitionDoneSink<PartitionId>>,
     /// Commits changes (i.e. deletion and creation).
     pub commit: Arc<dyn Commit>,
     /// Creates `PlanIR` that describes what files should be compacted and updated

@@ -69,7 +69,7 @@ pub(crate) fn throttle_partition<T1, T2, T3>(
 where
     T1: PartitionsSource,
     T2: Commit,
-    T3: PartitionDoneSink,
+    T3: PartitionDoneSink<PartitionId>,
 {
     let state = SharedState::default();
     let inner_sink = Arc::new(sink);
@@ -109,7 +109,7 @@ type SharedState = Arc<Mutex<State>>;
 pub(crate) struct ThrottlePartitionsSourceWrapper<T1, T2>
 where
     T1: PartitionsSource,
-    T2: PartitionDoneSink,
+    T2: PartitionDoneSink<PartitionId>,
 {
     inner_source: T1,
     inner_sink: Arc<T2>,
@@ -121,7 +121,7 @@ where
 impl<T1, T2> Display for ThrottlePartitionsSourceWrapper<T1, T2>
 where
     T1: PartitionsSource,
-    T2: PartitionDoneSink,
+    T2: PartitionDoneSink<PartitionId>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "throttle({}, {})", self.inner_source, self.inner_sink)
@@ -132,7 +132,7 @@ where
 impl<T1, T2> PartitionsSource for ThrottlePartitionsSourceWrapper<T1, T2>
 where
     T1: PartitionsSource<Output = PartitionId>,
-    T2: PartitionDoneSink,
+    T2: PartitionDoneSink<PartitionId>,
 {
     type Output = PartitionId;
 
@@ -244,7 +244,7 @@ where
 #[derive(Debug)]
 pub(crate) struct ThrottlePartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     inner: Arc<T>,
     state: SharedState,
@@ -254,7 +254,7 @@ where
 
 impl<T> Display for ThrottlePartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "throttle({})", self.inner)
@@ -262,9 +262,9 @@ where
 }
 
 #[async_trait]
-impl<T> PartitionDoneSink for ThrottlePartitionDoneSinkWrapper<T>
+impl<T> PartitionDoneSink<PartitionId> for ThrottlePartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     async fn record(
         &self,

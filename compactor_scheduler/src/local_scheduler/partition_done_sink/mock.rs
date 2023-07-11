@@ -30,7 +30,7 @@ impl Display for MockPartitionDoneSink {
 }
 
 #[async_trait]
-impl PartitionDoneSink for MockPartitionDoneSink {
+impl PartitionDoneSink<PartitionId> for MockPartitionDoneSink {
     async fn record(&self, partition: PartitionId, res: Result<(), DynError>) {
         self.last
             .lock()

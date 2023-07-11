@@ -12,7 +12,7 @@ const METRIC_NAME_PARTITION_COMPLETE_COUNT: &str = "iox_compactor_partition_comp
 #[derive(Debug)]
 pub struct MetricsPartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     ok_counter: U64Counter,
     error_counter: HashMap<ErrorKind, U64Counter>,
@@ -21,7 +21,7 @@ where
 
 impl<T> MetricsPartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     pub fn new(inner: T, registry: &Registry) -> Self {
         let metric = registry.register_metric::<U64Counter>(
@@ -49,7 +49,7 @@ where
 
 impl<T> Display for MetricsPartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "metrics({})", self.inner)
@@ -57,9 +57,9 @@ where
 }
 
 #[async_trait]
-impl<T> PartitionDoneSink for MetricsPartitionDoneSinkWrapper<T>
+impl<T> PartitionDoneSink<PartitionId> for MetricsPartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     async fn record(&self, partition: PartitionId, res: Result<(), DynError>) {
         match &res {

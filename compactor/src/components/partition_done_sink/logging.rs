@@ -10,14 +10,14 @@ use crate::error::{DynError, ErrorKindExt};
 #[derive(Debug)]
 pub struct LoggingPartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     inner: T,
 }
 
 impl<T> LoggingPartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     pub fn new(inner: T) -> Self {
         Self { inner }
@@ -26,7 +26,7 @@ where
 
 impl<T> Display for LoggingPartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "logging({})", self.inner)
@@ -34,9 +34,9 @@ where
 }
 
 #[async_trait]
-impl<T> PartitionDoneSink for LoggingPartitionDoneSinkWrapper<T>
+impl<T> PartitionDoneSink<PartitionId> for LoggingPartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     async fn record(&self, partition: PartitionId, res: Result<(), DynError>) {
         match &res {

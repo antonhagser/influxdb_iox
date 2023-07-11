@@ -50,7 +50,7 @@ pub(crate) fn unique_partitions<T1, T2>(
 )
 where
     T1: PartitionsSource,
-    T2: PartitionDoneSink,
+    T2: PartitionDoneSink<PartitionId>,
 {
     let inner_sink = Arc::new(inner_sink);
     let in_flight = Arc::new(Mutex::new(HashSet::default()));
@@ -73,7 +73,7 @@ type InFlight = Arc<Mutex<HashSet<PartitionId>>>;
 pub(crate) struct UniquePartionsSourceWrapper<T1, T2>
 where
     T1: PartitionsSource,
-    T2: PartitionDoneSink,
+    T2: PartitionDoneSink<PartitionId>,
 {
     inner_source: T1,
     inner_sink: Arc<T2>,
@@ -84,7 +84,7 @@ where
 impl<T1, T2> Display for UniquePartionsSourceWrapper<T1, T2>
 where
     T1: PartitionsSource,
-    T2: PartitionDoneSink,
+    T2: PartitionDoneSink<PartitionId>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "unique({}, {})", self.inner_source, self.inner_sink)
@@ -95,7 +95,7 @@ where
 impl<T1, T2> PartitionsSource for UniquePartionsSourceWrapper<T1, T2>
 where
     T1: PartitionsSource<Output = PartitionId>,
-    T2: PartitionDoneSink,
+    T2: PartitionDoneSink<PartitionId>,
 {
     type Output = PartitionId;
 
@@ -131,7 +131,7 @@ where
 #[derive(Debug)]
 pub(crate) struct UniquePartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     inner: Arc<T>,
     in_flight: InFlight,
@@ -139,7 +139,7 @@ where
 
 impl<T> Display for UniquePartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "unique({})", self.inner)
@@ -147,9 +147,9 @@ where
 }
 
 #[async_trait]
-impl<T> PartitionDoneSink for UniquePartitionDoneSinkWrapper<T>
+impl<T> PartitionDoneSink<PartitionId> for UniquePartitionDoneSinkWrapper<T>
 where
-    T: PartitionDoneSink,
+    T: PartitionDoneSink<PartitionId>,
 {
     async fn record(
         &self,

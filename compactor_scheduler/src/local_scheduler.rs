@@ -62,7 +62,7 @@ pub(crate) struct LocalScheduler {
     /// The actions to take when a partition is done.
     ///
     /// Includes partition (PartitionId) tracking of uniqueness and throttling.
-    partition_done_sink: Arc<dyn PartitionDoneSink>,
+    partition_done_sink: Arc<dyn PartitionDoneSink<PartitionId>>,
     /// The shard config used for generating the PartitionsSource.
     shard_config: Option<ShardConfig>,
 }
@@ -165,9 +165,9 @@ impl LocalScheduler {
     ) -> (
         Arc<dyn PartitionsSource<Output = PartitionId>>,
         Arc<dyn Commit>,
-        Arc<dyn PartitionDoneSink>,
+        Arc<dyn PartitionDoneSink<PartitionId>>,
     ) {
-        let partition_done_sink: Arc<dyn PartitionDoneSink> = if shadow_mode {
+        let partition_done_sink: Arc<dyn PartitionDoneSink<PartitionId>> = if shadow_mode {
             Arc::new(MockPartitionDoneSink::new())
         } else {
             Arc::new(CatalogPartitionDoneSink::new(

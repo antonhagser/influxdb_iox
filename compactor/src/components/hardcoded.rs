@@ -7,7 +7,7 @@ use std::{sync::Arc, time::Duration};
 use compactor_scheduler::{
     create_scheduler, Commit, CompactionJob, PartitionDoneSink, PartitionsSource, Scheduler,
 };
-use data_types::CompactionLevel;
+use data_types::{CompactionLevel, PartitionId};
 use object_store::memory::InMemory;
 
 use crate::{config::Config, error::ErrorKind, object_store::ignore_writes::IgnoreWrites};
@@ -122,7 +122,7 @@ fn make_partitions_source_commit_partition_sink(
 ) -> (
     Arc<dyn PartitionsSource<Output = CompactionJob>>,
     Arc<dyn Commit>,
-    Arc<dyn PartitionDoneSink>,
+    Arc<dyn PartitionDoneSink<PartitionId>>,
 ) {
     let partitions_source = ScheduledPartitionsSource::new(Arc::clone(&scheduler));
 
@@ -132,7 +132,9 @@ fn make_partitions_source_commit_partition_sink(
 
     // compactors are responsible for error classification
     // and any future decisions regarding graceful shutdown
-    let partition_done_sink: Arc<dyn PartitionDoneSink> = if config.all_errors_are_fatal {
+    let partition_done_sink: Arc<dyn PartitionDoneSink<PartitionId>> = if config
+        .all_errors_are_fatal
+    {
         Arc::new(partition_done_sink)
     } else {
         Arc::new(ErrorKindPartitionDoneSinkWrapper::new(

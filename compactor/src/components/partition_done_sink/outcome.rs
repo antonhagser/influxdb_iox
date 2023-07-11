@@ -27,7 +27,7 @@ impl Display for PartitionDoneSinkToScheduler {
 }
 
 #[async_trait]
-impl PartitionDoneSink for PartitionDoneSinkToScheduler {
+impl PartitionDoneSink<PartitionId> for PartitionDoneSinkToScheduler {
     async fn record(&self, partition: PartitionId, res: Result<(), DynError>) {
         let mut job_status = CompactionJobStatus {
             job: CompactionJob::new(partition),

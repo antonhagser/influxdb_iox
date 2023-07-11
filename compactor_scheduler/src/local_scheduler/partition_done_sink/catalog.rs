@@ -29,7 +29,7 @@ impl Display for CatalogPartitionDoneSink {
 }
 
 #[async_trait]
-impl PartitionDoneSink for CatalogPartitionDoneSink {
+impl PartitionDoneSink<PartitionId> for CatalogPartitionDoneSink {
     async fn record(&self, partition: PartitionId, res: Result<(), DynError>) {
         if let Err(e) = res {
             let msg = e.to_string();
