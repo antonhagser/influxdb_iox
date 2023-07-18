@@ -113,6 +113,7 @@ pub struct DeduplicateExec {
     sort_keys: Vec<PhysicalSortExpr>,
     input_order: Vec<PhysicalSortExpr>,
     use_chunk_order_col: bool,
+    allow_parallel: bool,
     /// Execution metrics
     metrics: ExecutionPlanMetricsSet,
 }
@@ -138,6 +139,7 @@ impl DeduplicateExec {
             sort_keys,
             input_order,
             use_chunk_order_col,
+            allow_parallel: true,
             metrics: ExecutionPlanMetricsSet::new(),
         }
     }
@@ -184,17 +186,34 @@ impl ExecutionPlan for DeduplicateExec {
     }
 
     fn output_partitioning(&self) -> Partitioning {
-        Partitioning::UnknownPartitioning(1)
+        self.input.output_partitioning()
     }
 
     fn output_ordering(&self) -> Option<&[PhysicalSortExpr]> {
         Some(&self.sort_keys)
     }
 
+    fn required_input_distribution(&self) -> Vec<Distribution> {
+        if self.allow_parallel {
+            vec![Distribution::HashPartitioned(
+                self.sort_keys
+                    .iter()
+                    .map(|se| Arc::clone(&se.expr))
+                    .collect(),
+            )]
+        } else {
+            vec![Distribution::SinglePartition]
+        }
+    }
+
     fn required_input_ordering(&self) -> Vec<Option<Vec<PhysicalSortRequirement>>> {
+        // if self.allow_parallel {
+        //     vec![None]
+        // } else {
         vec![Some(PhysicalSortRequirement::from_sort_exprs(
             &self.input_order,
         ))]
+        // }
     }
 
     fn maintains_input_order(&self) -> Vec<bool> {
@@ -202,7 +221,7 @@ impl ExecutionPlan for DeduplicateExec {
     }
 
     fn benefits_from_input_partitioning(&self) -> bool {
-        false
+        self.allow_parallel
     }
 
     fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
@@ -229,14 +248,9 @@ impl ExecutionPlan for DeduplicateExec {
     ) -> Result<SendableRecordBatchStream> {
         trace!(partition, "Start DeduplicationExec::execute");
 
-        if partition != 0 {
-            return Err(DataFusionError::Internal(
-                "DeduplicateExec only supports a single input stream".to_string(),
-            ));
-        }
         let deduplicate_metrics = DeduplicateMetrics::new(&self.metrics, partition);
 
-        let input_stream = self.input.execute(0, context)?;
+        let input_stream = self.input.execute(partition, context)?;
 
         // the deduplication is performed in a separate task which is
         // then sent via a channel to the output
@@ -258,13 +272,6 @@ impl ExecutionPlan for DeduplicateExec {
         );
 
         Ok(AdapterStream::adapt(self.schema(), rx, handle))
-    }
-
-    fn required_input_distribution(&self) -> Vec<Distribution> {
-        // For now use a single input -- it might be helpful
-        // eventually to deduplicate in parallel by hash partitioning
-        // the inputs (based on sort keys)
-        vec![Distribution::SinglePartition]
     }
 
     fn metrics(&self) -> Option<MetricsSet> {
