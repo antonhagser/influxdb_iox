@@ -15,21 +15,22 @@
 | logical_plan    | Sort: m.time ASC NULLS LAST    |
 |    |   TableScan: m projection=[f, tag, time]    |
 | physical_plan    | SortPreservingMergeExec: [time@2 ASC NULLS LAST]    |
-|    |   UnionExec    |
-|    |     SortExec: expr=[time@2 ASC NULLS LAST]    |
+|    |   SortExec: expr=[time@2 ASC NULLS LAST]    |
+|    |     InterleaveExec    |
 |    |       ProjectionExec: expr=[f@1 as f, tag@2 as tag, time@3 as time]    |
 |    |         DeduplicateExec: [tag@2 ASC,time@3 ASC]    |
-|    |           SortPreservingMergeExec: [tag@2 ASC,time@3 ASC,__chunk_order@0 ASC]    |
-|    |             ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000000.parquet], [1/1/1/00000000-0000-0000-0000-000000000001.parquet]]}, projection=[__chunk_order, f, tag, time], output_ordering=[tag@2 ASC, time@3 ASC, __chunk_order@0 ASC]    |
-|    |     SortExec: expr=[time@2 ASC NULLS LAST]    |
+|    |           CoalesceBatchesExec: target_batch_size=8192    |
+|    |             SortPreservingRepartitionExec: partitioning=Hash([tag@2, time@3], 4), input_partitions=2    |
+|    |               ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000000.parquet], [1/1/1/00000000-0000-0000-0000-000000000001.parquet]]}, projection=[__chunk_order, f, tag, time], output_ordering=[tag@2 ASC, time@3 ASC, __chunk_order@0 ASC]    |
 |    |       ProjectionExec: expr=[f@1 as f, tag@2 as tag, time@3 as time]    |
 |    |         DeduplicateExec: [tag@2 ASC,time@3 ASC]    |
-|    |           SortPreservingMergeExec: [tag@2 ASC,time@3 ASC,__chunk_order@0 ASC]    |
-|    |             ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000002.parquet], [1/1/1/00000000-0000-0000-0000-000000000003.parquet]]}, projection=[__chunk_order, f, tag, time], output_ordering=[tag@2 ASC, time@3 ASC, __chunk_order@0 ASC]    |
-|    |     SortExec: expr=[time@2 ASC NULLS LAST]    |
+|    |           CoalesceBatchesExec: target_batch_size=8192    |
+|    |             SortPreservingRepartitionExec: partitioning=Hash([tag@2, time@3], 4), input_partitions=2    |
+|    |               ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000002.parquet], [1/1/1/00000000-0000-0000-0000-000000000003.parquet]]}, projection=[__chunk_order, f, tag, time], output_ordering=[tag@2 ASC, time@3 ASC, __chunk_order@0 ASC]    |
 |    |       ProjectionExec: expr=[f@1 as f, tag@2 as tag, time@3 as time]    |
 |    |         DeduplicateExec: [tag@2 ASC,time@3 ASC]    |
-|    |           SortPreservingMergeExec: [tag@2 ASC,time@3 ASC,__chunk_order@0 ASC]    |
-|    |             ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000004.parquet], [1/1/1/00000000-0000-0000-0000-000000000005.parquet]]}, projection=[__chunk_order, f, tag, time], output_ordering=[tag@2 ASC, time@3 ASC, __chunk_order@0 ASC]    |
+|    |           CoalesceBatchesExec: target_batch_size=8192    |
+|    |             SortPreservingRepartitionExec: partitioning=Hash([tag@2, time@3], 4), input_partitions=2    |
+|    |               ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000004.parquet], [1/1/1/00000000-0000-0000-0000-000000000005.parquet]]}, projection=[__chunk_order, f, tag, time], output_ordering=[tag@2 ASC, time@3 ASC, __chunk_order@0 ASC]    |
 |    |    |
 ----------

@@ -1,5 +1,6 @@
 -- Test Setup: EqualInMeasurements
 -- SQL: SELECT * from "measurement=one";
+-- Results After Sorting
 +-------+--------+--------------------------------+
 | field | tag    | time                           |
 +-------+--------+--------------------------------+
@@ -7,6 +8,7 @@
 | 1.0   | value2 | 2021-01-01T00:00:01.000000002Z |
 +-------+--------+--------------------------------+
 -- SQL: SELECT tag from "measurement=one";
+-- Results After Sorting
 +--------+
 | tag    |
 +--------+

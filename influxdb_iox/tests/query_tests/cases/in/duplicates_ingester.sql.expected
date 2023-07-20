@@ -38,13 +38,16 @@
 |    |     SortExec: expr=[time@0 ASC NULLS LAST,state@1 ASC NULLS LAST,city@2 ASC NULLS LAST]    |
 |    |       ProjectionExec: expr=[time@1 as time, state@2 as state, city@3 as city, min_temp@4 as min_temp, max_temp@5 as max_temp, area@6 as area]    |
 |    |         DeduplicateExec: [state@2 ASC,city@3 ASC,time@1 ASC]    |
-|    |           SortPreservingMergeExec: [state@2 ASC,city@3 ASC,time@1 ASC,__chunk_order@0 ASC]    |
-|    |             ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000001.parquet], [1/1/1/00000000-0000-0000-0000-000000000002.parquet]]}, projection=[__chunk_order, time, state, city, min_temp, max_temp, area], output_ordering=[state@2 ASC, city@3 ASC, time@1 ASC, __chunk_order@0 ASC]    |
+|    |           CoalesceBatchesExec: target_batch_size=8192    |
+|    |             SortPreservingRepartitionExec: partitioning=Hash([state@2, city@3, time@1], 4), input_partitions=2    |
+|    |               ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000001.parquet], [1/1/1/00000000-0000-0000-0000-000000000002.parquet]]}, projection=[__chunk_order, time, state, city, min_temp, max_temp, area], output_ordering=[state@2 ASC, city@3 ASC, time@1 ASC, __chunk_order@0 ASC]    |
 |    |     SortExec: expr=[time@0 ASC NULLS LAST,state@1 ASC NULLS LAST,city@2 ASC NULLS LAST]    |
 |    |       ProjectionExec: expr=[time@1 as time, state@2 as state, city@3 as city, min_temp@4 as min_temp, max_temp@5 as max_temp, area@6 as area]    |
 |    |         DeduplicateExec: [city@3 ASC,state@2 ASC,time@1 ASC]    |
 |    |           SortExec: expr=[city@3 ASC,state@2 ASC,time@1 ASC,__chunk_order@0 ASC]    |
-|    |             RecordBatchesExec: batches_groups=1 batches=1 total_rows=6    |
+|    |             CoalesceBatchesExec: target_batch_size=8192    |
+|    |               RepartitionExec: partitioning=Hash([city@3, state@2, time@1], 4), input_partitions=1    |
+|    |                 RecordBatchesExec: batches_groups=1 batches=1 total_rows=6    |
 |    |    |
 ----------
 -- SQL: EXPLAIN select time, state, city, min_temp, max_temp, area from h2o;
@@ -58,12 +61,15 @@
 |    |   ParquetExec: file_groups={1 group: [[1/1/1/00000000-0000-0000-0000-000000000000.parquet]]}, projection=[time, state, city, min_temp, max_temp, area], output_ordering=[state@1 ASC, city@2 ASC, time@0 ASC]    |
 |    |   ProjectionExec: expr=[time@1 as time, state@2 as state, city@3 as city, min_temp@4 as min_temp, max_temp@5 as max_temp, area@6 as area]    |
 |    |     DeduplicateExec: [state@2 ASC,city@3 ASC,time@1 ASC]    |
-|    |       SortPreservingMergeExec: [state@2 ASC,city@3 ASC,time@1 ASC,__chunk_order@0 ASC]    |
-|    |         ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000001.parquet], [1/1/1/00000000-0000-0000-0000-000000000002.parquet]]}, projection=[__chunk_order, time, state, city, min_temp, max_temp, area], output_ordering=[state@2 ASC, city@3 ASC, time@1 ASC, __chunk_order@0 ASC]    |
+|    |       CoalesceBatchesExec: target_batch_size=8192    |
+|    |         SortPreservingRepartitionExec: partitioning=Hash([state@2, city@3, time@1], 4), input_partitions=2    |
+|    |           ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000001.parquet], [1/1/1/00000000-0000-0000-0000-000000000002.parquet]]}, projection=[__chunk_order, time, state, city, min_temp, max_temp, area], output_ordering=[state@2 ASC, city@3 ASC, time@1 ASC, __chunk_order@0 ASC]    |
 |    |   ProjectionExec: expr=[time@1 as time, state@2 as state, city@3 as city, min_temp@4 as min_temp, max_temp@5 as max_temp, area@6 as area]    |
 |    |     DeduplicateExec: [city@3 ASC,state@2 ASC,time@1 ASC]    |
 |    |       SortExec: expr=[city@3 ASC,state@2 ASC,time@1 ASC,__chunk_order@0 ASC]    |
-|    |         RecordBatchesExec: batches_groups=1 batches=1 total_rows=6    |
+|    |         CoalesceBatchesExec: target_batch_size=8192    |
+|    |           RepartitionExec: partitioning=Hash([city@3, state@2, time@1], 4), input_partitions=1    |
+|    |             RecordBatchesExec: batches_groups=1 batches=1 total_rows=6    |
 |    |    |
 ----------
 -- SQL: EXPLAIN select state as name from h2o UNION ALL select city as name from h2o;
@@ -82,23 +88,29 @@
 |    |       ParquetExec: file_groups={1 group: [[1/1/1/00000000-0000-0000-0000-000000000000.parquet]]}, projection=[state], output_ordering=[state@0 ASC]    |
 |    |       ProjectionExec: expr=[state@2 as state]    |
 |    |         DeduplicateExec: [state@2 ASC,city@1 ASC,time@3 ASC]    |
-|    |           SortPreservingMergeExec: [state@2 ASC,city@1 ASC,time@3 ASC,__chunk_order@0 ASC]    |
-|    |             ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000001.parquet], [1/1/1/00000000-0000-0000-0000-000000000002.parquet]]}, projection=[__chunk_order, city, state, time], output_ordering=[state@2 ASC, city@1 ASC, time@3 ASC, __chunk_order@0 ASC]    |
+|    |           CoalesceBatchesExec: target_batch_size=8192    |
+|    |             SortPreservingRepartitionExec: partitioning=Hash([state@2, city@1, time@3], 4), input_partitions=2    |
+|    |               ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000001.parquet], [1/1/1/00000000-0000-0000-0000-000000000002.parquet]]}, projection=[__chunk_order, city, state, time], output_ordering=[state@2 ASC, city@1 ASC, time@3 ASC, __chunk_order@0 ASC]    |
 |    |       ProjectionExec: expr=[state@2 as state]    |
 |    |         DeduplicateExec: [city@1 ASC,state@2 ASC,time@3 ASC]    |
 |    |           SortExec: expr=[city@1 ASC,state@2 ASC,time@3 ASC,__chunk_order@0 ASC]    |
-|    |             RecordBatchesExec: batches_groups=1 batches=1 total_rows=6    |
+|    |             CoalesceBatchesExec: target_batch_size=8192    |
+|    |               RepartitionExec: partitioning=Hash([city@1, state@2, time@3], 4), input_partitions=1    |
+|    |                 RecordBatchesExec: batches_groups=1 batches=1 total_rows=6    |
 |    |   ProjectionExec: expr=[city@0 as name]    |
 |    |     UnionExec    |
 |    |       ParquetExec: file_groups={1 group: [[1/1/1/00000000-0000-0000-0000-000000000000.parquet]]}, projection=[city]    |
 |    |       ProjectionExec: expr=[city@1 as city]    |
 |    |         DeduplicateExec: [state@2 ASC,city@1 ASC,time@3 ASC]    |
-|    |           SortPreservingMergeExec: [state@2 ASC,city@1 ASC,time@3 ASC,__chunk_order@0 ASC]    |
-|    |             ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000001.parquet], [1/1/1/00000000-0000-0000-0000-000000000002.parquet]]}, projection=[__chunk_order, city, state, time], output_ordering=[state@2 ASC, city@1 ASC, time@3 ASC, __chunk_order@0 ASC]    |
+|    |           CoalesceBatchesExec: target_batch_size=8192    |
+|    |             SortPreservingRepartitionExec: partitioning=Hash([state@2, city@1, time@3], 4), input_partitions=2    |
+|    |               ParquetExec: file_groups={2 groups: [[1/1/1/00000000-0000-0000-0000-000000000001.parquet], [1/1/1/00000000-0000-0000-0000-000000000002.parquet]]}, projection=[__chunk_order, city, state, time], output_ordering=[state@2 ASC, city@1 ASC, time@3 ASC, __chunk_order@0 ASC]    |
 |    |       ProjectionExec: expr=[city@1 as city]    |
 |    |         DeduplicateExec: [city@1 ASC,state@2 ASC,time@3 ASC]    |
 |    |           SortExec: expr=[city@1 ASC,state@2 ASC,time@3 ASC,__chunk_order@0 ASC]    |
-|    |             RecordBatchesExec: batches_groups=1 batches=1 total_rows=6    |
+|    |             CoalesceBatchesExec: target_batch_size=8192    |
+|    |               RepartitionExec: partitioning=Hash([city@1, state@2, time@3], 4), input_partitions=1    |
+|    |                 RecordBatchesExec: batches_groups=1 batches=1 total_rows=6    |
 |    |    |
 ----------
 -- SQL: select count(*) from h2o;

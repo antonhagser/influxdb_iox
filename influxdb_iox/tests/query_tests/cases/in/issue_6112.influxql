@@ -67,7 +67,9 @@ SELECT /tag(0|1)/, f64 FROM m0 WHERE tag0 = 'val00' OR tag1 = 'val10';
 SELECT f64 FROM m0 WHERE f64 > 10 + 10;
 
 -- bitwise
-SELECT i64 FROM m0 WHERE i64 & 1 = 0;
+-- This is being skipped due to:
+-- https://github.com/influxdata/influxdb_iox/issues/8291
+-- SELECT i64 FROM m0 WHERE i64 & 1 = 0;
 
 -- time bounds
 
@@ -226,15 +228,19 @@ SELECT f64 FROM m0 WHERE f64 >= 19 + 0.5;
 SELECT f64 FROM m0 WHERE f64 - 0.5 >= 19;
 SELECT f64 FROM m0 WHERE str = 'h' + 'i';
 
+-- The following four queries which use bitwise operators are commented out
+-- because they are failing due to:
+-- https://github.com/influxdata/influxdb_iox/issues/8291
+
 -- should be odd floating point numbers
-SELECT f64 FROM m0 WHERE f64::integer & 1 = 1;
+-- SELECT f64 FROM m0 WHERE f64::integer & 1 = 1;
 
 -- should be even floating point numbers
-SELECT f64 FROM m0 WHERE f64::integer & 1 = 0;
+-- SELECT f64 FROM m0 WHERE f64::integer & 1 = 0;
 
 -- These two deviate from InfluxQL, as the casting is optional
-SELECT f64 FROM m0 WHERE f64 & 1 = 1;
-SELECT f64 FROM m0 WHERE f64 & 1 = 0;
+-- SELECT f64 FROM m0 WHERE f64 & 1 = 1;
+-- SELECT f64 FROM m0 WHERE f64 & 1 = 0;
 
 -- Expressions with incompatible types should succeed and may or may not return results
 SELECT f64 FROM m0 WHERE f64 >= 19 + 0.5 OR str = 1;

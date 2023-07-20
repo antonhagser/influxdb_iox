@@ -2,7 +2,8 @@
 -- IOX_SETUP: AllTypes
 
 -- select * so the tests are more self describing / understandable
-SELECT * from m ORDER BY time;
+-- IOX_COMPARE: sorted
+SELECT * from m;
 
 ---- Note: all the tests below tests float, int, uint, string, and bool types and then a few together
 

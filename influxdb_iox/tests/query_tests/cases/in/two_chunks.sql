@@ -11,6 +11,7 @@ SELECT * from h2o;
 EXPLAIN SELECT * from h2o;
 
 -- Only selct fields and time
+-- IOX_COMPARE: sorted
 select temp, other_temp, time from h2o;
 -- IOX_COMPARE: uuid
 EXPLAIN select temp, other_temp, time from h2o;
