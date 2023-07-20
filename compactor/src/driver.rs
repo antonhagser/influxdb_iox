@@ -218,6 +218,12 @@ async fn try_compact_partition(
     loop {
         let round_span = span.child("round");
 
+        if files.is_empty() {
+            // No need to compact.  This should be unreachable, unless someone is manipulating the catalog
+            // to nudge partitions into compaction.
+            return Ok(());
+        }
+
         let round_info = components
             .round_info_source
             .calculate(&partition_info, &files)
