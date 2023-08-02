@@ -48,7 +48,7 @@ mod tests {
 
         assert_eq!(
             source.to_string(),
-            "scheduled_compaction_jobs_source(local_compaction_scheduler)",
+            "scheduled_compaction_jobs_source(job_tracker(local_compaction_scheduler))",
         );
     }
 }

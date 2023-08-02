@@ -33,6 +33,8 @@ pub use commit::{Commit, CommitWrapper, Error as CommitError};
 mod error;
 pub use error::ErrorKind;
 
+mod job_tracker;
+
 mod local_scheduler;
 #[allow(unused_imports)] // for testing
 pub(crate) use local_scheduler::partition_done_sink::mock::MockPartitionDoneSink;
@@ -78,7 +80,7 @@ pub fn create_scheduler(
                 metrics,
                 shadow_mode,
             );
-            Arc::new(scheduler)
+            Arc::new(job_tracker::JobTracker::new(scheduler))
         }
     }
 }
@@ -126,7 +128,10 @@ mod tests {
             None,
         );
 
-        assert_eq!(scheduler.to_string(), "local_compaction_scheduler");
+        assert_eq!(
+            scheduler.to_string(),
+            "job_tracker(local_compaction_scheduler)"
+        );
 
         let scheduler = create_test_scheduler(
             TestCatalog::new().catalog(),
@@ -134,7 +139,10 @@ mod tests {
             Some(vec![PartitionId::new(0)]),
         );
 
-        assert_eq!(scheduler.to_string(), "local_compaction_scheduler");
+        assert_eq!(
+            scheduler.to_string(),
+            "job_tracker(local_compaction_scheduler)"
+        );
     }
 
     #[tokio::test]
