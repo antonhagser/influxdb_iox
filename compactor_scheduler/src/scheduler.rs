@@ -173,7 +173,7 @@ pub struct CompactionJobEnd {
 }
 
 /// Identity of the scheduler.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Identity {
     /// Implementation of [`LocalScheduler`](crate::LocalScheduler).
     Local,
