@@ -106,10 +106,10 @@ where
         let (result, change_stats) = self.inner.put_schema(namespace, schema);
 
         if let Some(delta) = self.time_provider.now().checked_duration_since(t) {
-            if change_stats.did_update {
-                self.put_update.record(delta);
+            if change_stats.did_create {
+                self.put_insert.record(delta);
             } else {
-                self.put_insert.record(delta)
+                self.put_update.record(delta)
             };
         }
 

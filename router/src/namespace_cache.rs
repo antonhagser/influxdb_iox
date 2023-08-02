@@ -57,7 +57,7 @@ pub struct ChangeStats {
     /// namespace schema by this update.
     pub(crate) new_column_names_per_table: Vec<(String, String)>,
 
-    /// Indicates whether the change took place when an entry already
-    /// existed.
-    pub(crate) did_update: bool,
+    /// Indicates whether the namespace schema produced a new entry
+    /// in the cache.
+    pub(crate) did_create: bool,
 }
