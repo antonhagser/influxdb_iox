@@ -172,6 +172,15 @@ pub struct CompactionJobEnd {
     pub end_action: CompactionJobEndVariant,
 }
 
+/// Identity of the scheduler.
+#[derive(Debug)]
+pub enum Identity {
+    /// Implementation of [`LocalScheduler`](crate::LocalScheduler).
+    Local,
+    /// Implementation of RemoteScheduler(TBD).
+    Remote,
+}
+
 /// Core trait used for all schedulers.
 #[async_trait]
 pub trait Scheduler: Send + Sync + Debug + Display {
@@ -197,6 +206,9 @@ pub trait Scheduler: Send + Sync + Debug + Display {
         &self,
         end_action: CompactionJobEnd,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    /// Get identity of the scheduler.
+    fn identity(&self) -> Identity;
 }
 
 #[cfg(test)]

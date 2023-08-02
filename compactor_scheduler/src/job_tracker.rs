@@ -51,6 +51,10 @@ where
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.inner.end_job(end_action).await
     }
+
+    fn identity(&self) -> crate::Identity {
+        self.inner.identity()
+    }
 }
 
 impl<T> std::fmt::Display for JobTracker<T>

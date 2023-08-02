@@ -18,9 +18,9 @@ use observability_deps::tracing::{info, warn};
 use crate::{
     commit::{logging::LoggingCommitWrapper, metrics::MetricsCommitWrapper},
     Commit, CommitUpdate, CommitWrapper, CompactionJob, CompactionJobEnd, CompactionJobEndVariant,
-    CompactionJobStatus, CompactionJobStatusResponse, CompactionJobStatusVariant, MockCommit,
-    MockPartitionsSource, PartitionsSource, PartitionsSourceConfig, Scheduler, ShardConfig,
-    SkipReason,
+    CompactionJobStatus, CompactionJobStatusResponse, CompactionJobStatusVariant, Identity,
+    MockCommit, MockPartitionsSource, PartitionsSource, PartitionsSourceConfig, Scheduler,
+    ShardConfig, SkipReason,
 };
 
 use self::{
@@ -279,6 +279,10 @@ impl Scheduler for LocalScheduler {
                 Ok(())
             }
         }
+    }
+
+    fn identity(&self) -> Identity {
+        Identity::Local
     }
 }
 
