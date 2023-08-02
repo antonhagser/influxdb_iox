@@ -191,7 +191,7 @@ async fn test_cannot_commit_after_complete() {
         .await;
     assert_matches!(
         res,
-        Err(err) if err.to_string().contains("Unknown or already done partition:"),
+        Err(err) if err.to_string().contains("Unknown or already done compaction_job="),
         "should reject commit after complete, but found {:?}", res
     );
 }
@@ -238,7 +238,7 @@ async fn test_cannot_commit_after_skipping() {
         .await;
     assert_matches!(
         res,
-        Err(err) if err.to_string().contains("Unknown or already done partition:"),
+        Err(err) if err.to_string().contains("Unknown or already done compaction_job="),
         "should reject commit after skipping, but found {:?}", res
     );
 }

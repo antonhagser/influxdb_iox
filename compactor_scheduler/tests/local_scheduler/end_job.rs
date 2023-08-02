@@ -108,7 +108,7 @@ async fn test_after_complete_job_cannot_end_again() {
         .await;
     assert_matches!(
         res,
-        Err(err) if err.to_string().contains("Unknown or already done partition:"),
+        Err(err) if err.to_string().contains("Unknown or already done compaction_job="),
         "should error if attempt complete after complete, instead found {:?}", res
     );
 
@@ -123,7 +123,7 @@ async fn test_after_complete_job_cannot_end_again() {
         .await;
     assert_matches!(
         res,
-        Err(err) if err.to_string().contains("Unknown or already done partition:"),
+        Err(err) if err.to_string().contains("Unknown or already done compaction_job="),
         "should error if attempt skip partition after complete, instead found {:?}", res
     );
 }
@@ -148,7 +148,7 @@ async fn test_after_skip_request_cannot_end_again() {
         .await;
     assert_matches!(
         res,
-        Err(err) if err.to_string().contains("Unknown or already done partition:"),
+        Err(err) if err.to_string().contains("Unknown or already done compaction_job="),
         "should error if attempt complete after skip request, instead found {:?}", res
     );
 
@@ -163,7 +163,7 @@ async fn test_after_skip_request_cannot_end_again() {
         .await;
     assert_matches!(
         res,
-        Err(err) if err.to_string().contains("Unknown or already done partition:"),
+        Err(err) if err.to_string().contains("Unknown or already done compaction_job="),
         "should error if attempt skip request after skip request, instead found {:?}", res
     );
 }
