@@ -1,7 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use data_types::{ColumnsByName, NamespaceName, NamespaceSchema};
+use data_types::{NamespaceName, NamespaceSchema};
 use hashbrown::HashMap;
 use parking_lot::RwLock;
 use thiserror::Error;
@@ -56,11 +56,19 @@ impl NamespaceCache for Arc<MemoryNamespaceCache> {
             Some(old) => merge_schema_additive(schema, old),
             None => {
                 let change_stats = ChangeStats {
-                    new_tables: schema.tables.clone(),
-                    // There are no pre-existing tables for columns to be added
-                    // to, so don't need to build another map.
-                    new_columns_per_table: Default::default(),
-                    num_new_columns: schema.tables.values().map(|v| v.column_count()).sum(),
+                    new_table_names: schema.tables.keys().cloned().collect(),
+                    new_column_names_per_table: schema
+                        .tables
+                        .iter()
+                        .flat_map(|(table_name, table_schema)| {
+                            table_schema
+                                .columns
+                                .names()
+                                .iter()
+                                .map(|column_name| (table_name.clone(), column_name.to_string()))
+                                .collect::<Vec<_>>()
+                        })
+                        .collect(),
                     did_update: false,
                 };
                 (schema, change_stats)
@@ -85,8 +93,7 @@ fn merge_schema_additive(
     // invariant: Namespace partition template override should never change for a given name
     assert_eq!(old_ns.partition_template, new_ns.partition_template);
 
-    let mut new_columns_per_table: BTreeMap<String, ColumnsByName> = Default::default();
-    let mut num_new_columns = 0;
+    let mut new_columns_per_table: Vec<(String, String)> = Default::default();
 
     // Table schema missing from the new schema are added from the old. If the
     // table exists in both the new and the old namespace schema then any column
@@ -114,22 +121,15 @@ fn merge_schema_additive(
                 }
                 // Then take note of any columns added to the new table schema
                 // that are not present in the previous
-                let new_columns_in_table = new_table
-                    .columns
-                    .iter()
-                    .filter_map(|(new_column_name, new_column_schema)| {
+                new_columns_per_table.extend(new_table.columns.names().iter().filter_map(
+                    |new_column_name| {
                         if old_table.contains_column_name(new_column_name) {
                             None
                         } else {
-                            Some((new_column_name.clone(), *new_column_schema))
+                            Some((old_table_name.to_owned(), new_column_name.to_string()))
                         }
-                    })
-                    .collect::<BTreeMap<_, _>>();
-                if !new_columns_in_table.is_empty() {
-                    num_new_columns += new_columns_in_table.len();
-                    new_columns_per_table
-                        .insert(old_table_name.clone(), new_columns_in_table.into());
-                }
+                    },
+                ));
             }
             None => {
                 new_ns
@@ -143,24 +143,29 @@ fn merge_schema_additive(
     // their schema in the [`ChangeStats`].
     let new_tables = new_ns
         .tables
-        .iter()
-        .filter_map(|(new_table_name, new_table_schema)| {
-            if old_ns.tables.contains_key(new_table_name) {
-                None
-            } else {
-                num_new_columns += new_table_schema.column_count();
-                Some((new_table_name.clone(), new_table_schema.clone()))
-            }
-        })
-        .collect();
+        .keys()
+        .filter(|&new_table_name| !old_ns.tables.contains_key(new_table_name))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    new_columns_per_table.extend(new_tables.iter().flat_map(|table_name| {
+        new_ns
+            .tables
+            .get(table_name)
+            .unwrap()
+            .columns
+            .names()
+            .iter()
+            .map(|column_name| (table_name.clone(), column_name.to_string()))
+            .collect::<Vec<_>>()
+    }));
 
     // To compute the change stats for the merge it is still necessary to iterate
     // over the tables present in the new schema. The new schema may have
     // introduced additional tables that won't be visited by the merge logic's logic.
     let change_stats = ChangeStats {
-        new_tables,
-        new_columns_per_table,
-        num_new_columns,
+        new_table_names: new_tables,
+        new_column_names_per_table: new_columns_per_table,
         did_update: true,
     };
     (new_ns, change_stats)
@@ -203,7 +208,7 @@ mod tests {
         };
         assert_matches!(cache.put_schema(ns.clone(), schema1.clone()), (new, s) => {
             assert_eq!(*new, schema1);
-            assert!(s.new_tables.is_empty());
+            assert!(s.new_table_names.is_empty());
         });
         assert_eq!(
             *cache.get_schema(&ns).await.expect("lookup failure"),
@@ -221,7 +226,7 @@ mod tests {
 
         assert_matches!(cache.put_schema(ns.clone(), schema2.clone()), (new, s) => {
             assert_eq!(*new, schema2);
-            assert!(s.new_tables.is_empty());
+            assert!(s.new_table_names.is_empty());
         });
         assert_eq!(
             *cache.get_schema(&ns).await.expect("lookup failure"),
@@ -306,21 +311,21 @@ mod tests {
                 assert_eq!(*new_schema, schema_update_1);
                 assert_eq!(
                     new_stats,
-                    ChangeStats { new_tables: schema_update_1.tables.clone(), new_columns_per_table: Default::default(), num_new_columns: schema_update_1.tables.values().map(|v| v.column_count()).sum(), did_update: false }
+                    ChangeStats {
+                        new_table_names: schema_update_1.tables.keys().cloned().collect(),
+                        new_column_names_per_table: schema_update_1.tables.iter().flat_map(|(table_name, table_schema)| table_schema.columns.names().iter().map(|column_name| (table_name.clone(), column_name.to_string())).collect::<Vec<_>>()).collect::<Vec<_>>(),
+                        did_update: false,
+                    }
                 );
             }
         );
         assert_matches!(cache.put_schema(ns.clone(), schema_update_2), (new_schema, new_stats) => {
             assert_eq!(*new_schema, want_namespace_schema);
-            let want_new_columns = [(
-                String::from(table_name),
-                [(
-                    column_2.name.clone(),
-                    *second_write_table_schema.columns.get(column_2.name.as_str()).expect("should have column 2")
-                )].into_iter().collect::<BTreeMap<_,_>>().into(),
-            )].into_iter().collect::<BTreeMap<_,_>>();
+            let want_new_columns = [
+                (String::from(table_name), column_2.name.clone())
+            ].into_iter().collect::<Vec<_>>();
 
-            assert_eq!(new_stats, ChangeStats{ new_tables: Default::default(), new_columns_per_table: want_new_columns.clone(), num_new_columns: want_new_columns.values().map(|v| v.column_count()).sum(), did_update: true});
+            assert_eq!(new_stats, ChangeStats{ new_table_names: Default::default(), new_column_names_per_table: want_new_columns.clone(), did_update: true});
         });
 
         let got_namespace_schema = cache
@@ -411,21 +416,19 @@ mod tests {
                 assert_eq!(
                     new_stats,
                     ChangeStats {
-                        new_tables: schema_update_1.tables.clone(),
-                        new_columns_per_table: Default::default(),
-                        num_new_columns: schema_update_1.tables.values().map(|v| v.column_count()).sum(),
+                        new_table_names: schema_update_1.tables.keys().cloned().collect(),
+                        new_column_names_per_table: schema_update_1.tables.iter().flat_map(|(table_name, table_schema)| table_schema.columns.names().iter().map(|column_name| (table_name.clone(), column_name.to_string())).collect::<Vec<_>>()).collect::<Vec<_>>(),
                         did_update: false,
-                         }
+                    }
                 );
             }
         );
-        assert_matches!(cache.put_schema(ns.clone(), schema_update_2), (new_schema, new_stats) => {
+        assert_matches!(cache.put_schema(ns.clone(), schema_update_2.clone()), (new_schema, new_stats) => {
             assert_eq!(*new_schema, want_namespace_schema);
-            let want_new_tables = [(String::from("table_3"), table_3)].into_iter().collect::<BTreeMap<_, _>>();
+            let want_new_tables = [String::from("table_3")].into_iter().collect::<Vec<_>>();
             assert_eq!(new_stats, ChangeStats{
-                new_tables: want_new_tables.clone(),
-                new_columns_per_table: Default::default(),
-                num_new_columns: want_new_tables.values().map(|v| v.column_count()).sum(),
+                new_table_names: want_new_tables.clone(),
+                new_column_names_per_table: schema_update_2.tables.get("table_3").expect("missing table").columns.names().iter().map(|column_name| (String::from("table_3"), column_name.to_string())).collect::<Vec<_>>(),
                 did_update: true,
             });
         });
@@ -512,28 +515,6 @@ mod tests {
             .collect()
     }
 
-    /// Construct a set of `(table_name, column_name)` from a set of table schema and
-    /// table-associated column schema.
-    fn into_set_with_columns(
-        new_tables: &BTreeMap<String, TableSchema>,
-        new_columns: &BTreeMap<String, ColumnsByName>,
-    ) -> HashSet<(String, String)> {
-        let new_table_set = into_set(new_tables);
-        let new_column_set = new_columns
-            .iter()
-            .flat_map(|(table_name, col_set)| {
-                col_set
-                    .names()
-                    .into_iter()
-                    .map(|col_name| (table_name.to_string(), col_name.to_string()))
-            })
-            .collect();
-        new_table_set
-            .union(&new_column_set)
-            .map(|v| v.to_owned())
-            .collect::<HashSet<_>>()
-    }
-
     proptest! {
         #[test]
         fn prop_schema_merge(
@@ -554,14 +535,14 @@ mod tests {
             let cache = Arc::new(MemoryNamespaceCache::default());
             let (got, stats_1) = cache.put_schema(name.clone(), a.clone());
             assert_eq!(*got, a); // The new namespace should be unchanged
-            assert_eq!(stats_1.new_tables, a.tables);
+            assert_eq!(stats_1.new_table_names, a.tables.keys().cloned().collect::<Vec<_>>());
 
             // Drive the merging logic
             let (got, stats_2) = cache.put_schema(name, b.clone());
 
             // Check the change stats return the difference
             let want_change_stat_set = known_b.difference(&known_a).map(|v| v.to_owned()).collect::<HashSet<_>>();
-            let got_change_stat_set = into_set_with_columns(&stats_2.new_tables, &stats_2.new_columns_per_table);
+            let got_change_stat_set = stats_2.new_column_names_per_table.iter().cloned().collect::<HashSet<_>>();
             assert_eq!(got_change_stat_set, want_change_stat_set);
 
             // Reduce the merged schema into a comparable set.

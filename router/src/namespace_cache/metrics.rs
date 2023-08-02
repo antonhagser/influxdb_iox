@@ -114,8 +114,10 @@ where
         }
 
         // Adjust the metrics to reflect the change in table and column counts
-        self.table_count.inc(change_stats.new_tables.len() as u64);
-        self.column_count.inc(change_stats.num_new_columns as u64);
+        self.table_count
+            .inc(change_stats.new_table_names.len() as u64);
+        self.column_count
+            .inc(change_stats.new_column_names_per_table.len() as u64);
 
         (result, change_stats)
     }
