@@ -115,20 +115,27 @@ mod tests {
     #[tokio::test]
     async fn test_record() {
         let inner = Arc::new(MockCompactionJobDoneSink::new());
+        let scheduler = create_test_scheduler(
+            TestCatalog::new().catalog(),
+            Arc::new(MockProvider::new(Time::MIN)),
+            Some(vec![
+                PartitionId::new(1),
+                PartitionId::new(2),
+                PartitionId::new(3),
+                PartitionId::new(4),
+            ]),
+        );
         let sink = ErrorKindCompactionJobDoneSinkWrapper::new(
             Arc::clone(&inner),
             HashSet::from([ErrorKind::ObjectStore, ErrorKind::OutOfMemory]),
-            create_test_scheduler(
-                TestCatalog::new().catalog(),
-                Arc::new(MockProvider::new(Time::MIN)),
-                None,
-            ),
+            Arc::clone(&scheduler),
         );
 
-        let cj_1 = CompactionJob::new(PartitionId::new(1));
-        let cj_2 = CompactionJob::new(PartitionId::new(2));
-        let cj_3 = CompactionJob::new(PartitionId::new(3));
-        let cj_4 = CompactionJob::new(PartitionId::new(4));
+        let jobs = scheduler.get_jobs().await;
+        let cj_1 = jobs[0].clone();
+        let cj_2 = jobs[1].clone();
+        let cj_3 = jobs[2].clone();
+        let cj_4 = jobs[3].clone();
 
         sink.record(
             cj_1.clone(),
