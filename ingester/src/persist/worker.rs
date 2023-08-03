@@ -2,7 +2,7 @@ use std::{ops::ControlFlow, sync::Arc};
 
 use async_channel::RecvError;
 use backoff::Backoff;
-use data_types::{CompactionLevel, ParquetFileParams};
+use data_types::{ColumnsByName, CompactionLevel, ParquetFileParams};
 use iox_catalog::interface::{get_table_columns_by_id, CasFailure, Catalog};
 use iox_query::exec::Executor;
 use iox_time::{SystemProvider, TimeProvider};
@@ -174,8 +174,10 @@ async fn compact_and_upload<O>(
 where
     O: Send + Sync,
 {
-    let compacted = compact(ctx, worker_state).await;
-    let (sort_key_update, parquet_table_data) = upload(ctx, worker_state, compacted).await;
+    let columns = fetch_column_map(ctx, worker_state).await;
+    let compacted = compact(ctx, worker_state, &columns).await;
+    let (sort_key_update, parquet_table_data) =
+        upload(ctx, worker_state, compacted, &columns).await;
 
     if let Some(update) = sort_key_update {
         update_catalog_sort_key(
@@ -192,7 +194,13 @@ where
 
 /// Compact the data in `ctx` using sorted by the sort key returned from
 /// [`Context::sort_key()`].
-async fn compact<O>(ctx: &Context, worker_state: &SharedWorkerState<O>) -> CompactedStream
+async fn compact<O>(
+    ctx: &Context,
+    worker_state: &SharedWorkerState<O>,
+    // TODO: In my next PR where the data structure of SortKey aslo inlcude ColumnIDs,
+    // I will pass this columns down to compact_persisting_batch to get columnIDs when compute and adjust sort key
+    _columns: &ColumnsByName,
+) -> CompactedStream
 where
     O: Send + Sync,
 {
@@ -231,6 +239,7 @@ async fn upload<O>(
     ctx: &Context,
     worker_state: &SharedWorkerState<O>,
     compacted: CompactedStream,
+    columns: &ColumnsByName,
 ) -> (Option<SortKey>, ParquetFileParams)
 where
     O: Send + Sync,
@@ -294,15 +303,6 @@ where
         "partition parquet uploaded"
     );
 
-    // Read the table's columns from the catalog to get a map of column name -> column IDs.
-    let columns = Backoff::new(&Default::default())
-        .retry_all_errors("get table schema", || async {
-            let mut repos = worker_state.catalog.repositories().await;
-            get_table_columns_by_id(ctx.table_id(), repos.as_mut()).await
-        })
-        .await
-        .expect("retry forever");
-
     // Build the data that must be inserted into the parquet_files catalog
     // table in order to make the file visible to queriers.
     let parquet_table_data =
@@ -319,6 +319,20 @@ where
         });
 
     (catalog_sort_key_update, parquet_table_data)
+}
+
+/// Read the table's columns from the catalog to get a map of column name -> column IDs.
+async fn fetch_column_map<O>(ctx: &Context, worker_state: &SharedWorkerState<O>) -> ColumnsByName
+where
+    O: Send + Sync,
+{
+    Backoff::new(&Default::default())
+        .retry_all_errors("get table schema", || async {
+            let mut repos = worker_state.catalog.repositories().await;
+            get_table_columns_by_id(ctx.table_id(), repos.as_mut()).await
+        })
+        .await
+        .expect("retry forever")
 }
 
 /// Update the sort key value stored in the catalog for this [`Context`].
