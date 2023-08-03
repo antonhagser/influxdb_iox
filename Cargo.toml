@@ -156,14 +156,3 @@ opt-level = 3
 
 [profile.dev.package.similar]
 opt-level = 3
-
-[patch."https://github.com/apache/arrow-datafusion.git"]
-datafusion-common = { path = "../../apache/arrow-datafusion/datafusion/common" }
-datafusion = { path = "../../apache/arrow-datafusion/datafusion/core" }
-datafusion-execution = { path = "../../apache/arrow-datafusion/datafusion/execution" }
-datafusion-expr = { path = "../../apache/arrow-datafusion/datafusion/expr" }
-datafusion-optimizer = { path = "../../apache/arrow-datafusion/datafusion/optimizer" }
-datafusion-physical-expr = { path = "../../apache/arrow-datafusion/datafusion/physical-expr" }
-datafusion-proto = { path = "../../apache/arrow-datafusion/datafusion/proto" }
-datafusion-row = { path = "../../apache/arrow-datafusion/datafusion/row" }
-datafusion-sql = { path = "../../apache/arrow-datafusion/datafusion/sql" }

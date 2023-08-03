@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use datafusion::{execution::context::SessionState, physical_optimizer::PhysicalOptimizerRule};
+use datafusion::{execution::context::SessionState, physical_optimizer::{PhysicalOptimizerRule, sort_enforcement::EnforceSorting}};
 
 use self::{
     combine_chunks::CombineChunks,
@@ -10,7 +10,7 @@ use self::{
     },
     predicate_pushdown::PredicatePushdown,
     projection_pushdown::ProjectionPushdown,
-    sort::parquet_sortness::ParquetSortness,
+    sort::{parquet_sortness::ParquetSortness, push_sort_through_union::PushSortThroughUnion},
     union::{nested_union::NestedUnion, one_union::OneUnion},
 };
 
@@ -43,6 +43,14 @@ pub fn register_iox_physical_optimizers(state: SessionState) -> SessionState {
         Arc::new(OneUnion),
     ];
     optimizers.append(&mut state.physical_optimizers().to_vec());
+
+    // Add a PushSortThroughUnion just after EnforceSorting
+    let enforce_sorting = EnforceSorting::new();
+    let enforce_sorting_name = enforce_sorting.name();
+    let (enforce_sorting_index, _) = optimizers.iter().enumerate()
+        .find(|(_, rule)| rule.name() == enforce_sorting_name)
+        .expect("EnforceSorting should be present");
+    optimizers.insert(enforce_sorting_index + 1, Arc::new(PushSortThroughUnion));
 
     state.with_physical_optimizer_rules(optimizers)
 }

@@ -21,6 +21,7 @@ pub fn iox_session_config() -> SessionConfig {
     options.execution.parquet.pushdown_filters = true;
     options.execution.parquet.reorder_filters = true;
     options.optimizer.repartition_sorts = true;
+    options.optimizer.bounded_order_preserving_variants = true;
 
     SessionConfig::from(options)
         .with_batch_size(BATCH_SIZE)
