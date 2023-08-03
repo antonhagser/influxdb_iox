@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use assert_matches::assert_matches;
-use compactor_scheduler::{CommitUpdate, CompactionJobStatus, CompactionJobStatusVariant};
+use compactor_scheduler::{
+    CommitUpdate, CompactionJobStatus, CompactionJobStatusVariant, ErrorKind,
+};
 use data_types::CompactionLevel;
 
 use super::{super::helpers, TestLocalScheduler};
@@ -197,7 +199,7 @@ async fn test_cannot_commit_after_complete() {
 }
 
 #[tokio::test]
-async fn test_can_do_more_error_reporting_after_complete() {
+async fn test_cannot_do_more_error_reporting_after_complete() {
     test_helpers::maybe_start_logging();
 
     let test_scheduler = TestLocalScheduler::builder().await;
@@ -207,8 +209,18 @@ async fn test_can_do_more_error_reporting_after_complete() {
     // mark job as complete
     helpers::can_do_complete(Arc::clone(&scheduler), jobs[0].clone()).await;
 
-    // TEST: can do more error reporting
-    helpers::can_send_error(scheduler, jobs[0].clone()).await;
+    // TEST: cannot do more error reporting
+    let res = scheduler
+        .update_job_status(CompactionJobStatus {
+            job: jobs[0].clone(),
+            status: CompactionJobStatusVariant::Error(ErrorKind::Unknown("error reported".into())),
+        })
+        .await;
+    assert_matches!(
+        res,
+        Err(err) if err.to_string().contains("Unknown or already done compaction_job="),
+        "should reject commit after skipping, but found {:?}", res
+    );
 }
 
 #[tokio::test]
@@ -244,7 +256,7 @@ async fn test_cannot_commit_after_skipping() {
 }
 
 #[tokio::test]
-async fn test_can_do_more_error_reporting_after_skipping() {
+async fn test_cannot_do_more_error_reporting_after_skipping() {
     test_helpers::maybe_start_logging();
 
     let test_scheduler = TestLocalScheduler::builder().await;
@@ -254,6 +266,16 @@ async fn test_can_do_more_error_reporting_after_skipping() {
     // mark partition as skipped (also completes the job)
     helpers::can_do_skip_request(Arc::clone(&scheduler), jobs[0].clone()).await;
 
-    // TEST: can do more error reporting
-    helpers::can_send_error(scheduler, jobs[0].clone()).await;
+    // TEST: cannot do more error reporting
+    let res = scheduler
+        .update_job_status(CompactionJobStatus {
+            job: jobs[0].clone(),
+            status: CompactionJobStatusVariant::Error(ErrorKind::Unknown("error reported".into())),
+        })
+        .await;
+    assert_matches!(
+        res,
+        Err(err) if err.to_string().contains("Unknown or already done compaction_job="),
+        "should reject commit after skipping, but found {:?}", res
+    );
 }
