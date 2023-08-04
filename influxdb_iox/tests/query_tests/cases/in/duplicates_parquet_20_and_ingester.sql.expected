@@ -19,11 +19,11 @@
 |    |         ParquetExec: file_groups={4 groups: [[1/1/1/00000000-0000-0000-0000-000000000000.parquet, 1/1/1/00000000-0000-0000-0000-000000000001.parquet, 1/1/1/00000000-0000-0000-0000-000000000002.parquet], [1/1/1/00000000-0000-0000-0000-000000000003.parquet, 1/1/1/00000000-0000-0000-0000-000000000004.parquet, 1/1/1/00000000-0000-0000-0000-000000000005.parquet], [1/1/1/00000000-0000-0000-0000-000000000006.parquet, 1/1/1/00000000-0000-0000-0000-000000000007.parquet], [1/1/1/00000000-0000-0000-0000-000000000008.parquet, 1/1/1/00000000-0000-0000-0000-000000000009.parquet]]}, projection=[f]    |
 |    |         ProjectionExec: expr=[f@1 as f]    |
 |    |           DeduplicateExec: [tag@2 ASC,time@3 ASC]    |
-|    |             SortExec: expr=[tag@2 ASC,time@3 ASC,__chunk_order@0 ASC]    |
-|    |               CoalesceBatchesExec: target_batch_size=8192    |
-|    |                 RepartitionExec: partitioning=Hash([tag@2, time@3], 4), input_partitions=11    |
-|    |                   UnionExec    |
+|    |             CoalesceBatchesExec: target_batch_size=8192    |
+|    |               SortPreservingRepartitionExec: partitioning=Hash([tag@2, time@3], 4), input_partitions=11    |
+|    |                 UnionExec    |
+|    |                   SortExec: expr=[tag@2 ASC,time@3 ASC,__chunk_order@0 ASC]    |
 |    |                     RecordBatchesExec: batches_groups=1 batches=1 total_rows=1    |
-|    |                     ParquetExec: file_groups={10 groups: [[1/1/1/00000000-0000-0000-0000-00000000000a.parquet], [1/1/1/00000000-0000-0000-0000-00000000000b.parquet], [1/1/1/00000000-0000-0000-0000-00000000000c.parquet], [1/1/1/00000000-0000-0000-0000-00000000000d.parquet], [1/1/1/00000000-0000-0000-0000-00000000000e.parquet], ...]}, projection=[__chunk_order, f, tag, time], output_ordering=[tag@2 ASC, time@3 ASC, __chunk_order@0 ASC]    |
+|    |                   ParquetExec: file_groups={10 groups: [[1/1/1/00000000-0000-0000-0000-00000000000a.parquet], [1/1/1/00000000-0000-0000-0000-00000000000b.parquet], [1/1/1/00000000-0000-0000-0000-00000000000c.parquet], [1/1/1/00000000-0000-0000-0000-00000000000d.parquet], [1/1/1/00000000-0000-0000-0000-00000000000e.parquet], ...]}, projection=[__chunk_order, f, tag, time], output_ordering=[tag@2 ASC, time@3 ASC, __chunk_order@0 ASC]    |
 |    |    |
 ----------
