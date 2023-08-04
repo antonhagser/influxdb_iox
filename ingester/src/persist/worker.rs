@@ -174,8 +174,9 @@ async fn compact_and_upload<O>(
 where
     O: Send + Sync,
 {
-    let columns = fetch_column_map(ctx, worker_state).await;
-    let compacted = compact(ctx, worker_state, &columns).await;
+    let (sort_key, columns) = fetch_sort_key_and_column_map(ctx, worker_state).await;
+
+    let compacted = compact(ctx, worker_state, sort_key, &columns).await;
     let (sort_key_update, parquet_table_data) =
         upload(ctx, worker_state, compacted, &columns).await;
 
@@ -197,6 +198,7 @@ where
 async fn compact<O>(
     ctx: &Context,
     worker_state: &SharedWorkerState<O>,
+    sort_key: Option<SortKey>,
     // TODO: In my next PR where the data structure of SortKey aslo inlcude ColumnIDs,
     // I will pass this columns down to compact_persisting_batch to get columnIDs when compute and adjust sort key
     _columns: &ColumnsByName,
@@ -204,8 +206,6 @@ async fn compact<O>(
 where
     O: Send + Sync,
 {
-    let sort_key = ctx.sort_key().get().await;
-
     debug!(
         namespace_id = %ctx.namespace_id(),
         namespace_name = %ctx.namespace_name(),
@@ -321,18 +321,28 @@ where
     (catalog_sort_key_update, parquet_table_data)
 }
 
-/// Read the table's columns from the catalog to get a map of column name -> column IDs.
-async fn fetch_column_map<O>(ctx: &Context, worker_state: &SharedWorkerState<O>) -> ColumnsByName
+/// Get sort key and fetch the table column map from the catalog.
+/// The column map must fetched after the sort key is loaded to guarantee the map includes
+/// all columns in the sortkey
+async fn fetch_sort_key_and_column_map<O>(
+    ctx: &Context,
+    worker_state: &SharedWorkerState<O>,
+) -> (Option<SortKey>, ColumnsByName)
 where
     O: Send + Sync,
 {
-    Backoff::new(&Default::default())
+    let sort_key = ctx.sort_key().get().await;
+
+    // Read the table's columns from the catalog to get a map of column name -> column IDs.
+    let column_map = Backoff::new(&Default::default())
         .retry_all_errors("get table schema", || async {
             let mut repos = worker_state.catalog.repositories().await;
             get_table_columns_by_id(ctx.table_id(), repos.as_mut()).await
         })
         .await
-        .expect("retry forever")
+        .expect("retry forever");
+
+    (sort_key, column_map)
 }
 
 /// Update the sort key value stored in the catalog for this [`Context`].
