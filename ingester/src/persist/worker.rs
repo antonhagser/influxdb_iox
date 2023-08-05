@@ -174,7 +174,11 @@ async fn compact_and_upload<O>(
 where
     O: Send + Sync,
 {
-    let (sort_key, columns) = fetch_sort_key_and_column_map(ctx, worker_state).await;
+    // load sort key
+    let sort_key = ctx.sort_key().get().await;
+    // fetch column map
+    // THIS MUST BE DONE AFTER THE SORT KEY IS LOADED
+    let columns = fetch_column_map(ctx, worker_state, sort_key.clone()).await?;
 
     let compacted = compact(ctx, worker_state, sort_key, &columns).await;
     let (sort_key_update, parquet_table_data) =
@@ -321,18 +325,18 @@ where
     (catalog_sort_key_update, parquet_table_data)
 }
 
-/// Get sort key and fetch the table column map from the catalog.
-/// The column map must fetched after the sort key is loaded to guarantee the map includes
-/// all columns in the sortkey
-async fn fetch_sort_key_and_column_map<O>(
+/// Fetch the table column map from the catalog and verify if they contain all columns in the sort key
+async fn fetch_column_map<O>(
     ctx: &Context,
     worker_state: &SharedWorkerState<O>,
-) -> (Option<SortKey>, ColumnsByName)
+    // NOTE: CALLER MUST LOAD SORT KEY BEFORE CALLING THIS FUNCTION EVEN IF THE sort key IS NONE
+    // THIS IS A MUST TO GUARANTEE THE RETURNED COLUMN MAP CONTAINS ALL COLUMNS IN THE SORT KEY
+    // The purpose to put the sort_key as a param here is to make sure the caller has already loaded the sort key
+    sort_key: Option<SortKey>,
+) -> Result<ColumnsByName, PersistError>
 where
     O: Send + Sync,
 {
-    let sort_key = ctx.sort_key().get().await;
-
     // Read the table's columns from the catalog to get a map of column name -> column IDs.
     let column_map = Backoff::new(&Default::default())
         .retry_all_errors("get table schema", || async {
@@ -342,7 +346,32 @@ where
         .await
         .expect("retry forever");
 
-    (sort_key, column_map)
+    // Verify that the sort key columns are in the column map
+    if let Some(sort_key) = sort_key {
+        for sort_key_column in sort_key.to_columns() {
+            if !column_map.contains_column_name(sort_key_column) {
+                // TODO: open ticket to turn this warning in a panic and observe whether our sort_keys are wrong like described below
+                //
+                // At first I thought this situation happens becasue of a race condition and I threw an error here to
+                // let its parent retry to compact and persist again. But one of our tests repeats
+                // forever until timeout. This leads me to a discovery that if there were bugs in the past that inserted
+                // sortkey without inserting their table columns, the current code still work during data ingestion.
+                // by simply adding new columns to the end of the sort key.
+                // For querier, we only care about sortkey of columns in parquet file. So if there are
+                // columns in sort key that do not exist in the parquet file, we just ignore them.
+                // Thus while hitting this means the table does not cover all columns in the sort key,
+                // which sounds like a big bug, it works well today. So I just log a warning.
+                // The plan of this todo ticket is for us to make a PR only to turn this warning into a panic and observe closely
+                // whether our data is stricly correct and we won't hit this bug/panic. But if the panic happens a lot and
+                // prevents us from loading data, we will know we have to fix the data first.
+                // In that case, we can easily revert that PR and come up with a startegy to fix the data or just accept existing
+                // sort keys include non-exting columns.
+                warn!(%sort_key_column, "sort key column missing from table schema");
+            }
+        }
+    }
+
+    Ok(column_map)
 }
 
 /// Update the sort key value stored in the catalog for this [`Context`].

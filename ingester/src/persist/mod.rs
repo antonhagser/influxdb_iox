@@ -345,6 +345,9 @@ mod tests {
             .cas_sort_key(
                 &partition_id,
                 None,
+                // These values are random and not table columns.
+                // When we convert the warning in function fecth_column_map to a panic, this test must be changed
+                // to use actual table columns
                 &["bananas", "are", "good", "for", "you"],
             )
             .await
