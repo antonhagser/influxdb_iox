@@ -6,8 +6,12 @@
 SET statement_timeout TO '60min';
 
 -- IOX_STEP_BOUNDARY
+-- delete potentially invalid index
+DROP INDEX IF EXISTS partition_new_file_at_idx;
+
+-- IOX_STEP_BOUNDARY
 
 -- While `CONCURRENTLY` means it runs parallel to other writes, this command will only finish after the index was
 -- successfully built.
 -- IOX_NO_TRANSACTION
-CREATE INDEX CONCURRENTLY IF NOT EXISTS partition_new_file_at_idx ON partition (new_file_at);
+CREATE INDEX CONCURRENTLY partition_new_file_at_idx ON partition (new_file_at);
