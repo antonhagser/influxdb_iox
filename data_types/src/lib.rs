@@ -615,6 +615,16 @@ impl ParquetFile {
     pub fn overlaps_time_range(&self, min_time: Timestamp, max_time: Timestamp) -> bool {
         self.min_time <= max_time && self.max_time >= min_time
     }
+
+    /// Return true if the time range of this file overlaps with any of the given split times.
+    pub fn needs_split(&self, split_times: &Vec<i64>) -> bool {
+        for t in split_times {
+            if self.min_time.get() <= *t && self.max_time.get() > *t {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 /// Data for a parquet file to be inserted into the catalog.

@@ -4,219 +4,25 @@ use observability_deps::tracing::debug;
 
 use crate::{
     components::files_split::{target_level_split::TargetLevelSplit, FilesSplit},
-    file_classification::{FileToSplit, SplitReason},
+    file_classification::FileToSplit,
 };
-
-/// This function only takes action in scenarios with high backlog of overlapped L0s.
-///
-/// Return (`[files_to_split]`, `[files_not_to_split]`) of given files
-/// such that `files_to_split` are files in potentially both levels, and overlap each other.
-///
-/// The returned `[files_to_split]` includes a set of pairs. A pair is composed of a file
-///  and its corresponding split-times at which the file will be split into multiple files.
-///
-/// Example:
-///  . Input: Many L0s heavily overlapping
-//    - "L0.11[76,932] 1us 10mb         |-----------------------------------L0.11-----------------------------------|       "
-//    - "L0.12[42,986] 1us 10mb      |---------------------------------------L0.12---------------------------------------|  "
-//    - "L0.13[173,950] 1us 10mb                 |-------------------------------L0.13--------------------------------|     "
-//    - "L0.14[50,629] 1us 10mb       |----------------------L0.14-----------------------|                                  "
-//    - "L0.15[76,932] 1us 10mb         |-----------------------------------L0.15-----------------------------------|       "
-//    - "L0.16[42,986] 1us 10mb      |---------------------------------------L0.16---------------------------------------|  "
-//    - "L0.17[173,950] 1.01us 10mb               |-------------------------------L0.17--------------------------------|     "
-//    - "L0.18[50,629] 1.01us 10mb    |----------------------L0.18-----------------------|                                  "
-//  ... <pattern repeats>
-//    - "L0.55[76,932] 1.04us 10mb      |-----------------------------------L0.55-----------------------------------|       "
-//    - "L0.56[42,986] 1.05us 10mb   |---------------------------------------L0.56---------------------------------------|  "
-//    - "L0.57[173,950] 1.05us 10mb               |-------------------------------L0.57--------------------------------|     "
-//    - "L0.58[50,629] 1.05us 10mb    |----------------------L0.58-----------------------|                                  "
-//    - "L0.59[76,932] 1.05us 10mb      |-----------------------------------L0.59-----------------------------------|       "
-//    - "L0.60[42,986] 1.05us 10mb   |---------------------------------------L0.60---------------------------------------|  "
-///
-///  . Output:
-///     split all L0 input files at: split(split_times=[248, 372, 496, 620, 744, 868]
-///
-/// Reason behind the split:
-///  If this input was allowed to compact and split based on the algorithm focused on less
-///  extensively overlapped files, it can produce overlapped L1s so large than they can
-///  only be compacted 2-3 at a time, and then resplit at their prior boundaries.
-///
-///  Instead, this algorithm recognizes the large quantity of highly overlapped data and
-///  performs a 'vertical split', instead of selecting bite sized set of files and splitting
-///  just them, it selects all overlapping data and splits all of the files at the same
-///  time(s).  A single split decision made by this function may split a quantity of files
-///  many times larger than what we can compact in a single compaction.  But the split will
-///  allow a future compaction to fit all the data for a relatively narrow time range.
-///  The usefulness of this function's output relies on the chain identification in the
-///  `ManySmallFiles` case of `divide` in multiple_branches.rs.
-///
-pub fn high_l0_overlap_split(
-    max_compact_size: usize,
-    mut files: Vec<ParquetFile>,
-    target_level: CompactionLevel,
-) -> (Vec<FileToSplit>, Vec<ParquetFile>, SplitReason) {
-    let start_level = target_level.prev();
-    let len = files.len();
-
-    // This function focuses on many overlaps in a single level, which is only possible in L0.
-    if start_level != CompactionLevel::Initial {
-        return (vec![], files, SplitReason::HighL0OverlapSingleFile);
-    }
-
-    // We'll apply vertical splitting when the number of overlapped files is too large
-    // for a single compaction.
-    let total_cap: usize = files.iter().map(|f| f.file_size_bytes as usize).sum();
-
-    if total_cap < max_compact_size {
-        // Take no action, pass all files on to the next rule.
-        return (vec![], files, SplitReason::HighL0OverlapSingleFile);
-    }
-
-    // panic if not all files are either in target level or start level
-    assert!(files
-        .iter()
-        .all(|f| f.compaction_level == target_level || f.compaction_level == start_level));
-
-    // Get files in start level that overlap with any file in target level
-    let mut files_to_split = Vec::with_capacity(len);
-    let mut overlaps: Vec<&ParquetFile> = Vec::with_capacity(len);
-    let mut files_not_to_split = Vec::with_capacity(len);
-
-    // We need to operate on the earliest ("left most") files first.
-    files.sort_by_key(|f| f.max_l0_created_at);
-
-    // This function currently applies a `vertical split` in two scenarios.
-    // The second scenario is not sufficient on its own.  The first scenario may be adequate on its own (perhaps at
-    // a lower threshold than 2xmax_compact_size).  We do get a little better efficiency by keeping both vertical
-    // split methods, so scenario #2 can stay for now but may be removed later as further work is done on efficiency.
-    // Vertical split scenario 1:
-    if total_cap > 2 * max_compact_size {
-        let chains = split_into_chains(files);
-
-        for mut chain in chains {
-            let chain_cap: usize = chain.iter().map(|f| f.file_size_bytes as usize).sum();
-
-            if chain_cap <= max_compact_size {
-                // Its a small chain, we can compact it, no need to split it.
-                files_not_to_split.append(&mut chain);
-            } else {
-                // This chain is too big to compact on its own, so split it into smaller, more manageable chains.
-                let min = chain.iter().map(|f| f.min_time.get()).min().unwrap();
-                let max = chain.iter().map(|f| f.max_time.get()).max().unwrap();
-                let split_times = select_split_times(chain_cap, max_compact_size, min, max);
-
-                for file in &chain {
-                    let this_file_splits: Vec<i64> = split_times
-                        .iter()
-                        .filter(|split| {
-                            split >= &&file.min_time.get() && split < &&file.max_time.get()
-                        })
-                        .cloned()
-                        .collect();
-
-                    if !this_file_splits.is_empty() {
-                        files_to_split.push(FileToSplit {
-                            file: (*file).clone(),
-                            split_times: this_file_splits,
-                        });
-                    } else {
-                        // even though the chain this file is in needs split, this file falls between the splits.
-                        files_not_to_split.push((*file).clone());
-                    }
-                }
-            }
-        }
-        assert_eq!(files_to_split.len() + files_not_to_split.len(), len);
-
-        return (
-            files_to_split,
-            files_not_to_split,
-            SplitReason::HighL0OverlapTotalBacklog,
-        );
-    }
-
-    // Vertical split scenario 2:
-    // The files in `files` all overlap, but they might overlap in a chain (file1 overlaps file2, which overlaps file3...)
-    // This algorithm is not concerned with the chain of overlaps that keeps pulling in more files.  Instead, for each file,
-    // we'll look at what overlaps just it.  If that's over max_compact_size, we'll split them.
-    for file in &files {
-        if file.compaction_level != start_level {
-            continue;
-        }
-
-        // Get the set of overlaping start_level files that includes file
-        overlaps = files.iter().filter(|f| file.overlaps(f)).collect();
-
-        let min = overlaps.iter().map(|f| f.min_time.get()).min().unwrap();
-        let max = overlaps.iter().map(|f| f.max_time.get()).max().unwrap();
-
-        let overlapped_cap: usize = overlaps.iter().map(|f| f.file_size_bytes as usize).sum();
-
-        if overlapped_cap > max_compact_size {
-            // Overlapping start_level files are too big to compact all once.  So we'll split all of them, as if
-            // drawing a vertical line on the `input` in the above example.
-
-            let split_times = select_split_times(overlapped_cap, max_compact_size, min, max);
-            if split_times.is_empty() {
-                overlaps = vec![];
-                continue;
-            }
-
-            // for all the files in the overlapped set, if our chosen split times fall within the file, split it at the chosen time(s).
-            for file in &overlaps {
-                let this_file_splits: Vec<i64> = split_times
-                    .iter()
-                    .filter(|split| split >= &&file.min_time.get() && split < &&file.max_time.get())
-                    .cloned()
-                    .collect();
-
-                if !this_file_splits.is_empty() {
-                    files_to_split.push(FileToSplit {
-                        file: (*file).clone(),
-                        split_times: this_file_splits,
-                    });
-                } else {
-                    files_not_to_split.push((*file).clone());
-                }
-            }
-
-            break;
-        }
-
-        overlaps = vec![];
-    }
-
-    // Files in overlaps are already in files_to_split and files_not_to_split.  Everything else belongs in files_not_to_split.
-    let start_leftovers: Vec<ParquetFile> = files
-        .iter()
-        .filter(|f| !overlaps.contains(f))
-        .cloned()
-        .collect();
-
-    files_not_to_split.extend(start_leftovers);
-
-    assert_eq!(files_to_split.len() + files_not_to_split.len(), len);
-
-    (
-        files_to_split,
-        files_not_to_split,
-        SplitReason::HighL0OverlapSingleFile,
-    )
-}
 
 // selectSplitTimes returns an appropriate sets of split times to divide the given time range into,
 // based on how much over the max_compact_size the capacity is.
 // The assumption is that the caller has `cap` bytes spread across `min_time` to `max_time` and wants
-// to split those bytes into chunks approximating `max_compact_size`.
-// This function returns a vec of split times that assume the data is spread close to linearly across
-// the time range, but padded to allow some deviation from an even distrubution of data.
+// to split those bytes into chunks approximating `max_compact_size`.  We don't know if the data is
+// spread linearly, so we'll split into more pieces than would be necesary if the data is linear.
 // The cost of splitting into smaller pieces is minimal (potentially extra but smaller compactions),
 // while the cost splitting into pieces that are too big is considerable (we may have split again).
+// A vec of split_hints can be provided, which is assumed to be the min/max file times of the target
+// level files.  When hints are specified, this function will try to split at the hint times, if they're
+// +/- 50% the computed split times.
 pub fn select_split_times(
     cap: usize,
     max_compact_size: usize,
     min_time: i64,
     max_time: i64,
+    split_hint: Vec<i64>,
 ) -> Vec<i64> {
     if min_time == max_time {
         // can't split below 1 ns.
@@ -233,17 +39,52 @@ pub fn select_split_times(
     splits *= 2;
 
     // Splitting the time range into `splits` pieces requires an increase between each split time of `delta`.
-    let mut delta = (max_time - min_time) / (splits + 1) as i64;
+    let mut default_delta = (max_time - min_time) / (splits + 1) as i64;
+    let mut min_delta = default_delta / 2; // used to decide how far we'll deviate to align to split_hint
+    let mut max_delta = default_delta * 3 / 2; // used to decide how far we'll deviate to align to split_hint
 
-    if delta == 0 {
+    if default_delta == 0 {
         // The computed count leads to splitting at less than 1ns, which we cannot do.
         splits = (max_time - min_time) as usize; // The maximum number of splits possible for this time range.
-        delta = 1; // The smallest time delta between splits possible for this time range.
+        default_delta = 1; // The smallest time delta between splits possible for this time range.
     }
+    min_delta = min_delta.max(1);
+    max_delta = max_delta.max(1);
 
-    let split_times: Vec<i64> = (1..splits + 1)
-        .map(|i| min_time + (i as i64 * delta))
-        .collect();
+    let mut split_time = min_time;
+    let mut split_times = Vec::with_capacity(splits);
+    let mut hint_idx = 0;
+
+    // The * 3 / 2 in the loop criteria is so that we don't split at the very end of the time range, resulting
+    // in an unnecessary tiny time slice at the end.
+    while split_time + default_delta * 3 / 2 < max_time {
+        // advance to the next possible hint
+        while hint_idx < split_hint.len() && split_hint[hint_idx] < split_time + min_delta {
+            hint_idx += 1;
+        }
+
+        // if there's multiple hints we could use for the next split time, chose the closest one to our default delta.
+        let default_next = split_time + default_delta;
+        while hint_idx + 1 < split_hint.len()
+            && (split_hint[hint_idx] - default_next).abs()
+                > (split_hint[hint_idx + 1] - default_next).abs()
+        {
+            hint_idx += 1;
+        }
+
+        split_time = if hint_idx < split_hint.len() && split_hint[hint_idx] < split_time + max_delta
+        {
+            // The next hint is close enough to the next split that we'll use it instead of the computed split.
+            split_hint[hint_idx]
+        } else {
+            // There is no next hint, or its too far away, so add the default to the last split time.
+            split_time + default_delta
+        };
+
+        if split_time < max_time {
+            split_times.push(split_time);
+        }
+    }
 
     split_times
 }
@@ -448,40 +289,53 @@ mod tests {
 
         // splitting 150 bytes based on a max of 100, with a time range 0-100, gives 2 splits, into 3 pieces.
         // 1 split into 2 pieces would have also been ok.
-        let mut split_times = super::select_split_times(150, 100, 0, 100);
+        let mut split_times = super::select_split_times(150, 100, 0, 100, vec![]);
+        assert!(split_times == vec![33, 66]);
+        // give it hints (overlapping L1s) that are close to the splits it choses by default, and it will use them.
+        split_times = super::select_split_times(150, 100, 0, 100, vec![30, 65]);
+        assert!(split_times == vec![30, 65]);
+        // give it hints (overlapping L1s) that are far the splits it choses by default, and it sticks with the default.
+        split_times = super::select_split_times(150, 100, 0, 100, vec![10, 95]);
         assert!(split_times == vec![33, 66]);
 
         // splitting 199 bytes based on a max of 100, with a time range 0-100, gives 2 splits, into 3 pieces.
         // 1 split into 2 pieces would be a bad choice - its any deviation from perfectly linear distribution
         // would cause the split range to still exceed the max.
-        split_times = super::select_split_times(199, 100, 0, 100);
+        split_times = super::select_split_times(199, 100, 0, 100, vec![]);
         assert!(split_times == vec![33, 66]);
 
         // splitting 200-299 bytes based on a max of 100, with a time range 0-100, gives 4 splits into 5 pieces.
         // A bit agressive for exactly 2x the max cap, but very reasonable for 1 byte under 3x.
-        split_times = super::select_split_times(200, 100, 0, 100);
+        split_times = super::select_split_times(200, 100, 0, 100, vec![]);
         assert!(split_times == vec![20, 40, 60, 80]);
-        split_times = super::select_split_times(299, 100, 0, 100);
+        split_times = super::select_split_times(299, 100, 0, 100, vec![]);
         assert!(split_times == vec![20, 40, 60, 80]);
+        // once a hint shifts the split times, the rest of the split times are shifted too.
+        split_times = super::select_split_times(299, 100, 0, 100, vec![43]);
+        assert!(split_times == vec![20, 43, 63, 83]);
+        // give it a lot of hints, and see it pick the best (closest) ones.
+        split_times =
+            super::select_split_times(299, 100, 0, 100, vec![15, 19, 23, 35, 41, 55, 61, 82, 83]);
+        assert!(split_times == vec![19, 41, 61, 82]);
 
         // splitting 300-399 bytes based on a max of 100, with a time range 0-100, gives 5 splits, 6 pieces.
         // A bit agressive for exactly 3x the max cap, but very reasonable for 1 byte under 4x.
-        split_times = super::select_split_times(300, 100, 0, 100);
+        split_times = super::select_split_times(300, 100, 0, 100, vec![]);
         assert!(split_times == vec![14, 28, 42, 56, 70, 84]);
-        split_times = super::select_split_times(399, 100, 0, 100);
+        split_times = super::select_split_times(399, 100, 0, 100, vec![]);
         assert!(split_times == vec![14, 28, 42, 56, 70, 84]);
 
         // splitting 400 bytes based on a max of 100, with a time range 0-100, gives 7 splits, 8 pieces.
-        split_times = super::select_split_times(400, 100, 0, 100);
+        split_times = super::select_split_times(400, 100, 0, 100, vec![]);
         assert!(split_times == vec![11, 22, 33, 44, 55, 66, 77, 88]);
 
         // Now some pathelogical cases:
 
-        // splitting 400 bytes based on a max of 100, with a time range 0-3, gives 3 splits, into 4 pieces.
+        // splitting 400 bytes based on a max of 100, with a time range 0-3, gives 2 splits, into 3 pieces.
         // Some (maybe all) of these will still exceed the max, but this is the most splitting possible for
         // the time range.
-        split_times = super::select_split_times(400, 100, 0, 3);
-        assert!(split_times == vec![1, 2, 3]);
+        split_times = super::select_split_times(400, 100, 0, 3, vec![]);
+        assert!(split_times == vec![1, 2]);
     }
 
     #[test]

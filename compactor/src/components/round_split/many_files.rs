@@ -59,6 +59,17 @@ impl RoundSplit for ManyFilesRoundSplit {
 
                 (start_files, rest)
             }
+
+            RoundInfo::VerticalSplit { split_times } => {
+                // We're splitting L0 files at split_times.  So any L0 that overlaps a split_time needs processed, and all other files are ignored until later.
+                let (split_files, rest): (Vec<ParquetFile>, Vec<ParquetFile>) =
+                    files.into_iter().partition(|f| {
+                        f.compaction_level == CompactionLevel::Initial
+                            && f.needs_split(&split_times)
+                    });
+
+                (split_files, rest)
+            }
         }
     }
 }
@@ -87,7 +98,7 @@ mod tests {
         let split = ManyFilesRoundSplit::new();
 
         // empty input
-        assert_eq!(split.split(vec![], round_info), (vec![], vec![]));
+        assert_eq!(split.split(vec![], round_info.clone()), (vec![], vec![]));
 
         // all L0
         let f1 = ParquetFileBuilder::new(1)
@@ -97,7 +108,7 @@ mod tests {
             .with_compaction_level(CompactionLevel::Initial)
             .build();
         assert_eq!(
-            split.split(vec![f1.clone(), f2.clone()], round_info),
+            split.split(vec![f1.clone(), f2.clone()], round_info.clone()),
             (vec![f1.clone(), f2.clone()], vec![])
         );
 
@@ -111,7 +122,7 @@ mod tests {
         assert_eq!(
             split.split(
                 vec![f1.clone(), f2.clone(), f3.clone(), f4.clone()],
-                round_info
+                round_info.clone()
             ),
             (vec![f1, f2], vec![f3, f4])
         );
@@ -125,13 +136,13 @@ mod tests {
         let split = ManyFilesRoundSplit::new();
 
         // empty input
-        assert_eq!(split.split(vec![], round_info), (vec![], vec![]));
+        assert_eq!(split.split(vec![], round_info.clone()), (vec![], vec![]));
 
         // non empty
         let f1 = ParquetFileBuilder::new(1).build();
         let f2 = ParquetFileBuilder::new(2).build();
         assert_eq!(
-            split.split(vec![f1.clone(), f2.clone()], round_info),
+            split.split(vec![f1.clone(), f2.clone()], round_info.clone()),
             (vec![f1, f2], vec![])
         );
     }

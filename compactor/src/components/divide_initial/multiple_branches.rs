@@ -206,6 +206,9 @@ impl DivideInitial for MultipleBranchesDivideInitial {
                 }
                 (vec![current_branch], more_for_later)
             }
+
+            // RoundSplit already eliminated all the files we don't need to work on.
+            RoundInfo::VerticalSplit { .. } => (vec![files], more_for_later),
         }
     }
 }
@@ -259,7 +262,7 @@ mod tests {
 
         // empty input
         assert_eq!(
-            divide.divide(vec![], round_info),
+            divide.divide(vec![], round_info.clone()),
             (Vec::<Vec<_>>::new(), Vec::new())
         );
 
@@ -280,7 +283,7 @@ mod tests {
         // files in random order of max_l0_created_at
         let files = vec![f2.clone(), f3.clone(), f1.clone()];
 
-        let (branches, more_for_later) = divide.divide(files, round_info);
+        let (branches, more_for_later) = divide.divide(files, round_info.clone());
         // output must be split into their max_l0_created_at
         assert_eq!(branches.len(), 1);
         assert_eq!(more_for_later.len(), 1);

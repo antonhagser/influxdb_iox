@@ -6,7 +6,7 @@ use data_types::CompactionLevel;
 
 /// Information about the current compaction round (see driver.rs for
 /// more details about a round)
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum RoundInfo {
     /// compacting to target level
     TargetLevel {
@@ -40,6 +40,16 @@ pub enum RoundInfo {
         /// max total size limit of files to group in each plan
         max_total_file_size_to_group: usize,
     },
+
+    /// Vertical Split always applies to L0.  This is triggered when we have too many overlapping L0s to
+    /// compact in one batch, so we'll split files so they don't all overlap.  Its called "vertical" because
+    /// if the L0s were drawn on a timeline, we'd then draw some vertical lines across L0s, and every place
+    /// a line crosses a file, its split there.
+    VerticalSplit {
+        /// split_times are the exact times L0 files will be split at.  Only L0 files overlapping these times
+        /// need split.
+        split_times: Vec<i64>,
+    },
 }
 
 impl Display for RoundInfo {
@@ -55,6 +65,7 @@ impl Display for RoundInfo {
                 max_num_files_to_group,
                 max_total_file_size_to_group,
             } => write!(f, "SimulatedLeadingEdge: {max_num_files_to_group}, {max_total_file_size_to_group}",),
+            Self::VerticalSplit  { split_times } => write!(f, "VerticalSplit: {split_times:?}"),
         }
     }
 }
@@ -67,6 +78,7 @@ impl RoundInfo {
             // For many files, start level is the target level
             Self::ManySmallFiles { start_level, .. } => *start_level,
             Self::SimulatedLeadingEdge { .. } => CompactionLevel::FileNonOverlapped,
+            Self::VerticalSplit { .. } => CompactionLevel::Initial,
         }
     }
 
@@ -92,6 +104,7 @@ impl RoundInfo {
                 max_num_files_to_group,
                 ..
             } => Some(*max_num_files_to_group),
+            Self::VerticalSplit { .. } => None,
         }
     }
 
@@ -107,6 +120,7 @@ impl RoundInfo {
                 max_total_file_size_to_group,
                 ..
             } => Some(*max_total_file_size_to_group),
+            Self::VerticalSplit { .. } => None,
         }
     }
 }

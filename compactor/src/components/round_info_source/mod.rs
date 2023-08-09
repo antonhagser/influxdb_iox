@@ -5,7 +5,9 @@ use std::{
 };
 
 use crate::components::{
-    split_or_compact::start_level_files_to_split::{merge_small_l0_chains, split_into_chains},
+    split_or_compact::start_level_files_to_split::{
+        merge_small_l0_chains, select_split_times, split_into_chains,
+    },
     Components,
 };
 use async_trait::async_trait;
@@ -199,6 +201,64 @@ impl LevelBasedRoundInfo {
 
         false
     }
+
+    /// vertical_split_times evaluates the files to determine if vertical splitting is necessary.  If so,
+    /// a vec of split times is returned.  The caller will use those split times in a VerticalSplit RoundInfo.
+    /// If no split times are returned, that implies veritcal splitting is not appropriate, and the caller
+    /// will identify another type of RoundInfo for this round of compaction.
+    pub fn vertical_split_times(
+        &self,
+        files: Vec<ParquetFile>,
+        max_compact_size: usize,
+    ) -> Vec<i64> {
+        let (mut start_level_files, target_level_files): (Vec<ParquetFile>, Vec<ParquetFile>) =
+            files
+                .into_iter()
+                .filter(|f| f.compaction_level != CompactionLevel::Final)
+                .partition(|f| f.compaction_level == CompactionLevel::Initial);
+
+        let len = start_level_files.len();
+        let mut split_times = Vec::with_capacity(len);
+
+        // We need to operate on the earliest ("left most") files first.
+        start_level_files.sort_by_key(|f| f.max_l0_created_at);
+
+        let chains = split_into_chains(start_level_files);
+
+        for chain in chains {
+            let chain_cap: usize = chain.iter().map(|f| f.file_size_bytes as usize).sum();
+
+            // A single file over max size can just get upgraded to L1, then L2, unless it overlaps other L0s.
+            // So multi file chains over the max compact size need split
+            if chain.len() > 1 && chain_cap > max_compact_size {
+                // This chain is too big to compact on its own, so files should be split it into smaller, more manageable chains.
+                let min = chain.iter().map(|f| f.min_time.get()).min().unwrap();
+                let max = chain.iter().map(|f| f.max_time.get()).max().unwrap();
+
+                // Since we'll be splitting the start level files anyway, it would be nice to align the split times to
+                // the min/max times of target level files.  So we'll use the min/max time of target level files as hints,
+                // and see what lines up to where the chain needs split.
+                let split_hints: Vec<i64> =
+                    Vec::with_capacity(chain_cap * 2 / max_compact_size + 1);
+
+                for f in &target_level_files {
+                    if f.min_time.get() >= min && f.min_time.get() <= max {
+                        split_times.push(f.min_time.get());
+                    }
+                    if f.max_time.get() >= min && f.max_time.get() <= max {
+                        split_times.push(f.max_time.get());
+                    }
+                }
+
+                let splits = select_split_times(chain_cap, max_compact_size, min, max, split_hints);
+                split_times.extend(splits);
+            }
+        }
+
+        split_times.sort();
+        split_times.dedup();
+        split_times
+    }
 }
 
 #[async_trait]
@@ -220,29 +280,38 @@ impl RoundInfoSource for LevelBasedRoundInfo {
             self.max_total_file_size_per_plan,
         );
 
-        let round_info = if start_level == CompactionLevel::Initial
-            && self.many_ungroupable_files(&files, start_level, self.max_num_files_per_plan)
-        {
-            RoundInfo::SimulatedLeadingEdge {
-                max_num_files_to_group: self.max_num_files_per_plan,
-                max_total_file_size_to_group: self.max_total_file_size_per_plan,
-            }
-        } else if start_level == CompactionLevel::Initial
-            && self.too_many_small_files_to_compact(&files, start_level)
-        {
-            RoundInfo::ManySmallFiles {
-                start_level,
-                max_num_files_to_group: self.max_num_files_per_plan,
-                max_total_file_size_to_group: self.max_total_file_size_per_plan,
+        let round_info = if start_level == CompactionLevel::Initial {
+            let split_times = self
+                .vertical_split_times(files.clone().to_vec(), self.max_total_file_size_per_plan);
+            if !split_times.is_empty() {
+                RoundInfo::VerticalSplit { split_times }
+            } else if self.many_ungroupable_files(&files, start_level, self.max_num_files_per_plan)
+            {
+                RoundInfo::SimulatedLeadingEdge {
+                    max_num_files_to_group: self.max_num_files_per_plan,
+                    max_total_file_size_to_group: self.max_total_file_size_per_plan,
+                }
+            } else if self.too_many_small_files_to_compact(&files, start_level) {
+                RoundInfo::ManySmallFiles {
+                    start_level,
+                    max_num_files_to_group: self.max_num_files_per_plan,
+                    max_total_file_size_to_group: self.max_total_file_size_per_plan,
+                }
+            } else {
+                RoundInfo::TargetLevel {
+                    target_level: CompactionLevel::FileNonOverlapped,
+                }
             }
         } else {
             let target_level = start_level.next();
             RoundInfo::TargetLevel { target_level }
         };
 
-        let (files_now, mut files_later) = components.round_split.split(files, round_info);
+        let (files_now, mut files_later) = components.round_split.split(files, round_info.clone());
 
-        let (branches, more_for_later) = components.divide_initial.divide(files_now, round_info);
+        let (branches, more_for_later) = components
+            .divide_initial
+            .divide(files_now, round_info.clone());
         files_later.extend(more_for_later);
 
         Ok((round_info, branches, files_later))
