@@ -305,6 +305,7 @@ mod tests {
                 partition_key,
                 vec![],
                 None,
+                None,
             )
         }
     }
@@ -387,6 +388,7 @@ mod tests {
             ARBITRARY_TABLE_ID,
             ARBITRARY_PARTITION_KEY.clone(),
             vec![],
+            None,
             None,
         );
         let want_id = p.transition_partition_id().clone();

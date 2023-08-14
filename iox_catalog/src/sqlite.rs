@@ -818,17 +818,23 @@ struct PartitionPod {
     table_id: TableId,
     partition_key: PartitionKey,
     sort_key: Json<Vec<String>>,
+    sort_key_ids: Option<Json<Vec<i64>>>,
     new_file_at: Option<Timestamp>,
 }
 
 impl From<PartitionPod> for Partition {
     fn from(value: PartitionPod) -> Self {
+        let sort_key_ids = value
+            .sort_key_ids
+            .map(|sort_key_ids| ColumnSet::from(sort_key_ids.0));
+
         Self::new_with_hash_id_from_sqlite_catalog_only(
             value.id,
             value.hash_id,
             value.table_id,
             value.partition_key,
             value.sort_key.0,
+            sort_key_ids,
             value.new_file_at,
         )
     }
@@ -851,7 +857,7 @@ VALUES
     ($1, $2, $3, $4, '[]')
 ON CONFLICT (table_id, partition_key)
 DO UPDATE SET partition_key = partition.partition_key
-RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
+RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
         "#,
         )
         .bind(key) // $1
@@ -874,7 +880,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
     async fn get_by_id(&mut self, partition_id: PartitionId) -> Result<Option<Partition>> {
         let rec = sqlx::query_as::<_, PartitionPod>(
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
 FROM partition
 WHERE id = $1;
             "#,
@@ -898,7 +904,7 @@ WHERE id = $1;
 
         sqlx::query_as::<_, PartitionPod>(
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
 FROM partition
 WHERE id IN (SELECT value FROM json_each($1));
             "#,
@@ -916,7 +922,7 @@ WHERE id IN (SELECT value FROM json_each($1));
     ) -> Result<Option<Partition>> {
         let rec = sqlx::query_as::<_, PartitionPod>(
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
 FROM partition
 WHERE hash_id = $1;
             "#,
@@ -954,7 +960,7 @@ WHERE hash_id = $1;
 
         sqlx::query_as::<_, PartitionPod>(
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
 FROM partition
 WHERE hex(hash_id) IN (SELECT value FROM json_each($1));
             "#,
@@ -969,7 +975,7 @@ WHERE hex(hash_id) IN (SELECT value FROM json_each($1));
     async fn list_by_table_id(&mut self, table_id: TableId) -> Result<Vec<Partition>> {
         Ok(sqlx::query_as::<_, PartitionPod>(
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
 FROM partition
 WHERE table_id = $1;
             "#,
@@ -1016,7 +1022,7 @@ WHERE table_id = $1;
 UPDATE partition
 SET sort_key = $1
 WHERE hash_id = $2 AND sort_key = $3
-RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
+RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
         "#,
             )
             .bind(Json(new_sort_key)) // $1
@@ -1027,7 +1033,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
 UPDATE partition
 SET sort_key = $1
 WHERE id = $2 AND sort_key = $3
-RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
+RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
         "#,
             )
             .bind(Json(new_sort_key)) // $1
@@ -1164,7 +1170,7 @@ RETURNING *
     async fn most_recent_n(&mut self, n: usize) -> Result<Vec<Partition>> {
         Ok(sqlx::query_as::<_, PartitionPod>(
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
 FROM partition
 ORDER BY id DESC
 LIMIT $1;
@@ -1756,6 +1762,8 @@ mod tests {
             .unwrap();
         assert_eq!(table_partitions.len(), 1);
         assert_eq!(table_partitions[0].hash_id().unwrap(), &hash_id);
+        // sort_key_ids is null
+        assert!(table_partitions[0].sort_key_ids.is_none());
     }
 
     #[tokio::test]
@@ -1780,7 +1788,7 @@ VALUES
     ($1, $2, $3, '[]')
 ON CONFLICT (table_id, partition_key)
 DO UPDATE SET partition_key = partition.partition_key
-RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
+RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
         "#,
         )
         .bind(&key) // $1
@@ -1794,6 +1802,8 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
         let table_partitions = repos.partitions().list_by_table_id(table_id).await.unwrap();
         assert_eq!(table_partitions.len(), 1);
         let partition = &table_partitions[0];
+        // assert null sort_key_ids
+        assert!(partition.sort_key_ids.is_none());
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent
         // and that the hash_id will still be set by `Partition::new`
@@ -1804,6 +1814,8 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
             .expect("idempotent write should succeed");
 
         assert_eq!(partition, &inserted_again);
+        // assert null sort_key_ids
+        assert!(inserted_again.sort_key_ids.is_none());
 
         // Create a Parquet file record in this partition to ensure we don't break new data
         // ingestion for old-style partitions

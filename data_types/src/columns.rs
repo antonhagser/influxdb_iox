@@ -331,7 +331,7 @@ impl TryFrom<proto::column_schema::ColumnType> for ColumnType {
 }
 
 /// Set of columns.
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, sqlx::Type)]
 #[sqlx(transparent, no_pg_array)]
 pub struct ColumnSet(Vec<ColumnId>);
 
@@ -376,6 +376,15 @@ impl Deref for ColumnSet {
 
     fn deref(&self) -> &Self::Target {
         self.0.deref()
+    }
+}
+
+impl<I> From<I> for ColumnSet
+where
+    I: IntoIterator<Item = i64>,
+{
+    fn from(ids: I) -> Self {
+        Self(ids.into_iter().map(ColumnId::new).collect())
     }
 }
 

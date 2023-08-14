@@ -1157,6 +1157,21 @@ impl PartitionRepo for PostgresTxn {
         // Note: since sort_key is now an array, we must explicitly insert '{}' which is an empty
         // array rather than NULL which sqlx will throw `UnexpectedNullError` while is is doing
         // `ColumnDecode`
+        //
+        // todo: ask Carol/Dom/Andrew/Marco whether the note above (empty array `{}`) is a must becasue this PR does not follow this for `sort_key_ids`.
+        // Context:
+        //  . We purposely create `sort_key_ids` as a NULL field for data that we still use `sort_key`
+        //  . For new partitions, we will make this field an empty array `{}` (This will be done in my next PR)
+        //  . For partitions with coming data (new or old), we will update this field with corresponding `sort_key_ids`
+        //  . For old partitions without coming data, we must keep `sort_key_ids` as NULL so we will write a script to
+        //     update all NULL `sort_key_ids` with corresponding `sort_key`
+        // Hence for sort_key_ids, we store it as an Option<ColumnSet> in Partition. If it is null, that field will be None.
+        // If it is not null, that field will be Some(ColumnSet)
+        // Will that work with sqlx's `ColumnDecode`? I think so but if there are suspicious issues, which tests whould we add to verify this?
+        //
+        // If it must be a empty array, {}, rather than null, we can change the catalog field to NOT NULL and make it default `{}`.
+        // Unless the NULL does not work with sqlx's `ColumnDecode`, I think we should keep it as NULL for now.
+        // At later step, we will convert it to NOT NULL when we know that all existing data has been updated.
 
         let hash_id = PartitionHashId::new(table_id, &key);
 
@@ -1168,7 +1183,7 @@ VALUES
     ( $1, $2, $3, $4, '{}')
 ON CONFLICT ON CONSTRAINT partition_key_unique
 DO UPDATE SET partition_key = partition.partition_key
-RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
+RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
         "#,
         )
         .bind(key) // $1
@@ -1191,7 +1206,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
     async fn get_by_id(&mut self, partition_id: PartitionId) -> Result<Option<Partition>> {
         let rec = sqlx::query_as::<_, Partition>(
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
 FROM partition
 WHERE id = $1;
         "#,
@@ -1214,7 +1229,7 @@ WHERE id = $1;
 
         sqlx::query_as::<_, Partition>(
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
 FROM partition
 WHERE id = ANY($1);
         "#,
@@ -1231,7 +1246,7 @@ WHERE id = ANY($1);
     ) -> Result<Option<Partition>> {
         let rec = sqlx::query_as::<_, Partition>(
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
 FROM partition
 WHERE hash_id = $1;
         "#,
@@ -1257,7 +1272,7 @@ WHERE hash_id = $1;
 
         sqlx::query_as::<_, Partition>(
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
 FROM partition
 WHERE hash_id = ANY($1);
         "#,
@@ -1271,7 +1286,7 @@ WHERE hash_id = ANY($1);
     async fn list_by_table_id(&mut self, table_id: TableId) -> Result<Vec<Partition>> {
         sqlx::query_as::<_, Partition>(
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
 FROM partition
 WHERE table_id = $1;
             "#,
@@ -1314,7 +1329,7 @@ WHERE table_id = $1;
 UPDATE partition
 SET sort_key = $1
 WHERE hash_id = $2 AND sort_key = $3
-RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
+RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
         "#,
             )
             .bind(new_sort_key) // $1
@@ -1325,7 +1340,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
 UPDATE partition
 SET sort_key = $1
 WHERE id = $2 AND sort_key = $3
-RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
+RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
         "#,
             )
             .bind(new_sort_key) // $1
@@ -1461,10 +1476,12 @@ RETURNING *
         .context(interface::CouldNotDeleteSkippedCompactionsSnafu)
     }
 
+    // todo: test return null sort_key_ids
     async fn most_recent_n(&mut self, n: usize) -> Result<Vec<Partition>> {
         sqlx::query_as(
+// TODO: ask Carol where persisted_sequence_number is stored because there is no such filed in Partition struct
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, persisted_sequence_number, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, persisted_sequence_number, new_file_at
 FROM partition
 ORDER BY id DESC
 LIMIT $1;"#,
@@ -2173,6 +2190,8 @@ mod tests {
             .unwrap();
         assert_eq!(table_partitions.len(), 1);
         assert_eq!(table_partitions[0].hash_id().unwrap(), &hash_id);
+        // sort_key_ids is null
+        assert!(table_partitions[0].sort_key_ids.is_none());
     }
 
     #[tokio::test]
@@ -2199,7 +2218,7 @@ VALUES
     ( $1, $2, $3, '{}')
 ON CONFLICT ON CONSTRAINT partition_key_unique
 DO UPDATE SET partition_key = partition.partition_key
-RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
+RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
         "#,
         )
         .bind(&key) // $1
@@ -2214,6 +2233,8 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, new_file_at;
         assert_eq!(table_partitions.len(), 1);
         let partition = &table_partitions[0];
         assert!(partition.hash_id().is_none());
+        // assert null sort_key_ids
+        assert!(partition.sort_key_ids.is_none());
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent
         // and that the hash_id still doesn't get set.

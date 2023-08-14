@@ -1001,14 +1001,18 @@ mod tests {
             .create_or_get("test".into(), table_id)
             .await
             .expect("should create");
+        // sort key is null
+        assert!(partition.sort_key_ids.is_none());
 
-        catalog
+        let updated_partition = catalog
             .repositories()
             .await
             .partitions()
             .cas_sort_key(&partition.transition_partition_id(), None, &["terrific"])
             .await
             .unwrap();
+        // sort key is still null
+        assert!(updated_partition.sort_key_ids.is_none());
 
         // Read the just-created sort key (None)
         let fetcher = Arc::new(DeferredLoad::new(
