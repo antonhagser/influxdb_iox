@@ -1167,9 +1167,19 @@ impl PartitionRepo for PostgresTxn {
         //     update all NULL `sort_key_ids` with corresponding `sort_key`
         // Hence for sort_key_ids, we store it as an Option<ColumnSet> in Partition. If it is null, that field will be None.
         // If it is not null, that field will be Some(ColumnSet)
-        // Will that work with sqlx's `ColumnDecode`? I think so but if there are suspicious issues, which tests whould we add to verify this?
+        // Will that work with sqlx's `ColumnDecode`? I think so but if there are suspicious issues, which other tests
+        // should we add to verify this? I think my TEST stratergy would cover all sqlx's ColumnDecode issues if any as below:
+        //   . Verify that all sort_key_ids are NULL/None in this PR
+        //   . Next PR I will insert empty array {} for new partitions and all sort_key_ids of new partitions will be
+        //     Some(ColumnSet) with empty ColumnSet. In this PR, I will need to create a FAKE update sort_key_ids to NULL
+        //     to simulate existing data with NULL sort_key_ids for me to tests sort_key_ids with None or Some(ColumnSet)
+        //   . In another PR, I will update sort_key_ids of partitions with coming data with corresponding sort_key, and verify
+        //     those sort_key_ids are Some(ColumnSet) with non-empty ColumnSet. At this time, our code will handle 3 kinds of
+        //    sort_key_ids: None, Some(ColumnSet) with empty ColumnSet, Some(ColumnSet) with non-empty ColumnSet.
+        //   . Then in near future after Marco finishes his script to update all NULL sort_key_ids with corresponding sort_key,
+        //     we will make sort_key_ids NOT NULL and then we will  modify the code to not accept None sort_key_ids anymore.
         //
-        // If it must be a empty array, {}, rather than null, we can change the catalog field to NOT NULL and make it default `{}`.
+        // HOwever, if sort_key_ids must be a empty array, {}, rather than null, we can change the catalog field to NOT NULL and make it default `{}`.
         // Unless the NULL does not work with sqlx's `ColumnDecode`, I think we should keep it as NULL for now.
         // At later step, we will convert it to NOT NULL when we know that all existing data has been updated.
 
