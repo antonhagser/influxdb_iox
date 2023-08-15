@@ -640,6 +640,8 @@ where
             "DoGet request",
         );
 
+        print!("chunchun DoGet request\n namespace_name:{namespace_name}\n  query: {query}\n  trace: {trace}\n");
+
         let response = self
             .run_do_get(
                 span_ctx,
@@ -697,6 +699,7 @@ where
         if let Some(header) = response_header {
             response.metadata_mut().insert("authorization", header);
         }
+        print!("chunchun handshake");
         Ok(response)
     }
 
@@ -779,6 +782,7 @@ where
             .try_with_schema(schema.as_ref())
             .context(EncodeSchemaSnafu)?;
 
+        print!("chunchun get_flight_info");
         Ok(tonic::Response::new(flight_info))
     }
 
