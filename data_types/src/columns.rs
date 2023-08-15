@@ -363,6 +363,11 @@ impl ColumnSet {
     pub fn size(&self) -> usize {
         std::mem::size_of_val(self) + (std::mem::size_of::<ColumnId>() * self.0.capacity())
     }
+
+    /// The set is empty or not
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl From<ColumnSet> for Vec<ColumnId> {

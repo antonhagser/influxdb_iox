@@ -336,8 +336,9 @@ impl TestTable {
             )
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(partition.sort_key_ids.is_none());
+
+        // Test: sort_key_ids after updating
+        assert!(partition.sort_key_ids().unwrap().is_empty());
 
         Arc::new(TestPartition {
             catalog: Arc::clone(&self.catalog),
@@ -462,8 +463,9 @@ impl TestPartition {
             )
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(partition.sort_key_ids.is_none());
+
+        // Test: sort_key_ids after updating
+        assert!(partition.sort_key_ids().unwrap().is_empty());
 
         Arc::new(Self {
             catalog: Arc::clone(&self.catalog),
@@ -806,8 +808,8 @@ async fn update_catalog_sort_key_if_needed<R>(
                     )
                     .await
                     .unwrap();
-                // sort_key_ids is null
-                assert!(updated_partition.sort_key_ids.is_none());
+                // Test: sort_key_ids after updating
+                assert!(updated_partition.sort_key_ids().unwrap().is_empty());
             }
         }
         None => {
@@ -818,8 +820,8 @@ async fn update_catalog_sort_key_if_needed<R>(
                 .cas_sort_key(id, None, &new_columns)
                 .await
                 .unwrap();
-            // sort_key_ids is null
-            assert!(updated_partition.sort_key_ids.is_none());
+            // Test: sort_key_ids after updating
+            assert!(updated_partition.sort_key_ids().unwrap().is_empty());
         }
     }
 }

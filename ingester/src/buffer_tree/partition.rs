@@ -1001,8 +1001,8 @@ mod tests {
             .create_or_get("test".into(), table_id)
             .await
             .expect("should create");
-        // sort key is null
-        assert!(partition.sort_key_ids.is_none());
+        // Test: sort_key_ids from create_or_get which is empty
+        assert!(partition.sort_key_ids().unwrap().is_empty());
 
         let updated_partition = catalog
             .repositories()
@@ -1011,8 +1011,8 @@ mod tests {
             .cas_sort_key(&partition.transition_partition_id(), None, &["terrific"])
             .await
             .unwrap();
-        // sort key is still null
-        assert!(updated_partition.sort_key_ids.is_none());
+        // Test: sort_key_ids after updating
+        assert!(updated_partition.sort_key_ids().unwrap().is_empty());
 
         // Read the just-created sort key (None)
         let fetcher = Arc::new(DeferredLoad::new(

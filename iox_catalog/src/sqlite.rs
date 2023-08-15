@@ -852,9 +852,9 @@ impl PartitionRepo for SqliteTxn {
         let v = sqlx::query_as::<_, PartitionPod>(
             r#"
 INSERT INTO partition
-    (partition_key, shard_id, table_id, hash_id, sort_key)
+    (partition_key, shard_id, table_id, hash_id, sort_key, sort_key_ids)
 VALUES
-    ($1, $2, $3, $4, '[]')
+    ($1, $2, $3, $4, '[]', '[]')
 ON CONFLICT (table_id, partition_key)
 DO UPDATE SET partition_key = partition.partition_key
 RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
@@ -1762,8 +1762,9 @@ mod tests {
             .unwrap();
         assert_eq!(table_partitions.len(), 1);
         assert_eq!(table_partitions[0].hash_id().unwrap(), &hash_id);
-        // sort_key_ids is null
-        assert!(table_partitions[0].sort_key_ids.is_none());
+
+        // Test: sort_key_ids from partition_create_or_get_idempotent
+        assert!(table_partitions[0].sort_key_ids().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -1783,9 +1784,9 @@ mod tests {
         sqlx::query(
             r#"
 INSERT INTO partition
-    (partition_key, shard_id, table_id, sort_key)
+    (partition_key, shard_id, table_id, sort_key, sort_key_ids)
 VALUES
-    ($1, $2, $3, '[]')
+    ($1, $2, $3, '[]', '[]')
 ON CONFLICT (table_id, partition_key)
 DO UPDATE SET partition_key = partition.partition_key
 RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
@@ -1802,8 +1803,9 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
         let table_partitions = repos.partitions().list_by_table_id(table_id).await.unwrap();
         assert_eq!(table_partitions.len(), 1);
         let partition = &table_partitions[0];
-        // assert null sort_key_ids
-        assert!(partition.sort_key_ids.is_none());
+
+        // Test: sort_key_ids from freshly insert with empty value
+        assert!(partition.sort_key_ids().unwrap().is_empty());
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent
         // and that the hash_id will still be set by `Partition::new`
@@ -1813,9 +1815,10 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
             .await
             .expect("idempotent write should succeed");
 
+        // Test: sort_key_ids from freshly insert with empty value
+        assert!(inserted_again.sort_key_ids().unwrap().is_empty());
+
         assert_eq!(partition, &inserted_again);
-        // assert null sort_key_ids
-        assert!(inserted_again.sort_key_ids.is_none());
 
         // Create a Parquet file record in this partition to ensure we don't break new data
         // ingestion for old-style partitions
@@ -1831,6 +1834,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
         );
     }
 
+    // todo: remove this test once we're sure all partitions have a sort_key_ids
     #[tokio::test]
     async fn existing_partitions_without_sort_key_ids() {
         let sqlite = setup_db().await;

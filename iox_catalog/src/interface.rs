@@ -1491,8 +1491,8 @@ pub(crate) mod test_helpers {
             .create_or_get("foo".into(), table.id)
             .await
             .expect("failed to create partition");
-        // sort_key_ids is null
-        assert!(partition.sort_key_ids.is_none());
+        // Test: sort_key_ids from create_or_get
+        assert!(partition.sort_key_ids().unwrap().is_empty());
         created.insert(partition.id, partition.clone());
         // partition to use
         let partition_bar = repos
@@ -1500,8 +1500,6 @@ pub(crate) mod test_helpers {
             .create_or_get("bar".into(), table.id)
             .await
             .expect("failed to create partition");
-        // sort_key_ids is null
-        assert!(partition.sort_key_ids.is_none());
         created.insert(partition_bar.id, partition_bar);
         // partition to be skipped later
         let to_skip_partition = repos
@@ -1509,8 +1507,6 @@ pub(crate) mod test_helpers {
             .create_or_get("asdf".into(), table.id)
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(to_skip_partition.sort_key_ids.is_none());
         created.insert(to_skip_partition.id, to_skip_partition.clone());
         // partition to be skipped later
         let to_skip_partition_too = repos
@@ -1518,8 +1514,6 @@ pub(crate) mod test_helpers {
             .create_or_get("asdf too".into(), table.id)
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(to_skip_partition_too.sort_key_ids.is_none());
         created.insert(to_skip_partition_too.id, to_skip_partition_too.clone());
 
         // partitions can be retrieved easily
@@ -1571,8 +1565,8 @@ pub(crate) mod test_helpers {
             .unwrap();
         batch.sort_by_key(|p| p.id);
         assert_eq!(created_sorted, batch);
-        // all sort_key_ids are null
-        assert!(batch.iter().all(|p| p.sort_key_ids.is_none()));
+        // Test: sort_key_ids from get_by_id_batch
+        assert!(batch.iter().all(|p| p.sort_key_ids().unwrap().is_empty()));
         let mut batch = repos
             .partitions()
             .get_by_hash_id_batch(
@@ -1585,8 +1579,8 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
         batch.sort_by_key(|p| p.id);
-        // all sort_key_ids are null
-        assert!(batch.iter().all(|p| p.sort_key_ids.is_none()));
+        // Test: sort_key_ids from get_by_hash_id_batch
+        assert!(batch.iter().all(|p| p.sort_key_ids().unwrap().is_empty()));
         assert_eq!(created_sorted, batch);
 
         let listed = repos
@@ -1597,8 +1591,10 @@ pub(crate) mod test_helpers {
             .into_iter()
             .map(|v| (v.id, v))
             .collect::<BTreeMap<_, _>>();
-        // all sort_key_ids are null
-        assert!(listed.values().all(|p| p.sort_key_ids.is_none()));
+        // Test: sort_key_ids from list_by_table_id
+        assert!(listed
+            .values()
+            .all(|p| p.sort_key_ids().unwrap().is_empty()));
 
         assert_eq!(created, listed);
 
@@ -1625,8 +1621,9 @@ pub(crate) mod test_helpers {
             )
             .await
             .unwrap();
-        // verify sort_key_ids gotten back from the udpate is still null
-        assert!(updated_partition.sort_key_ids.is_none());
+
+        // Test: sort_key_ids after updating from cas_sort_key
+        assert!(updated_partition.sort_key_ids().unwrap().is_empty());
 
         // test sort key CAS with an incorrect value
         let err = repos
@@ -1653,8 +1650,8 @@ pub(crate) mod test_helpers {
             updated_other_partition.sort_key,
             vec!["tag2", "tag1", "time"]
         );
-        // sort_key_ids should be null
-        assert!(updated_other_partition.sort_key_ids.is_none());
+        // Test: sort_key_ids from get_by_id
+        assert!(updated_other_partition.sort_key_ids().unwrap().is_empty());
 
         let updated_other_partition = repos
             .partitions()
@@ -1666,8 +1663,8 @@ pub(crate) mod test_helpers {
             updated_other_partition.sort_key,
             vec!["tag2", "tag1", "time"]
         );
-        // sort_key_ids should be null
-        assert!(updated_other_partition.sort_key_ids.is_none());
+        // Test: sort_key_ids from get_by_hash_id
+        assert!(updated_other_partition.sort_key_ids().unwrap().is_empty());
 
         // test sort key CAS with no value
         let err = repos
@@ -1712,8 +1709,8 @@ pub(crate) mod test_helpers {
             )
             .await
             .unwrap();
-        // sort_key_ids gotten back from the udpate is still null
-        assert!(updated_partition.sort_key_ids.is_none());
+        // Test: sort_key_ids afer updating from cas_sort_key
+        assert!(updated_partition.sort_key_ids().unwrap().is_empty());
 
         // test getting the new sort key
         let updated_partition = repos
@@ -1726,8 +1723,8 @@ pub(crate) mod test_helpers {
             updated_partition.sort_key,
             vec!["tag2", "tag1", "tag3 , with comma", "time"]
         );
-        // sort_key_ids gotten back from the udpate is still null
-        assert!(updated_partition.sort_key_ids.is_none());
+        // Test: sort_key_ids from get_by_id after after updating
+        assert!(updated_partition.sort_key_ids().unwrap().is_empty());
 
         let updated_partition = repos
             .partitions()
@@ -1739,8 +1736,8 @@ pub(crate) mod test_helpers {
             updated_partition.sort_key,
             vec!["tag2", "tag1", "tag3 , with comma", "time"]
         );
-        // sort_key_ids gotten back from the udpate is still null
-        assert!(updated_partition.sort_key_ids.is_none());
+        // Tets: sort_key_ids from get_by_hash_id after updating
+        assert!(updated_partition.sort_key_ids().unwrap().is_empty());
 
         // The compactor can log why compaction was skipped
         let skipped_compactions = repos.partitions().list_skipped_compactions().await.unwrap();
@@ -1922,8 +1919,8 @@ pub(crate) mod test_helpers {
             .await
             .expect("should list most recent");
         assert_eq!(recent.len(), 4);
-        // all partitions have null sort_key_ids
-        assert!(recent.iter().all(|p| p.sort_key_ids.is_none()));
+        // Test: sort_key_ids from most_recent_n
+        assert!(recent.iter().all(|p| p.sort_key_ids().unwrap().is_empty()));
 
         let recent = repos
             .partitions()
@@ -1931,8 +1928,6 @@ pub(crate) mod test_helpers {
             .await
             .expect("should list most recent");
         assert_eq!(recent.len(), 4); // no off by one error
-                                     // all partitions have null sort_key_ids
-        assert!(recent.iter().all(|p| p.sort_key_ids.is_none()));
 
         let recent = repos
             .partitions()
@@ -1940,8 +1935,6 @@ pub(crate) mod test_helpers {
             .await
             .expect("should list most recent");
         assert_eq!(recent.len(), 2);
-        // all partitions have null sort_key_ids
-        assert!(recent.iter().all(|p| p.sort_key_ids.is_none()));
 
         repos
             .namespaces()
@@ -1962,15 +1955,12 @@ pub(crate) mod test_helpers {
             .create_or_get("one".into(), table.id)
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(partition.sort_key_ids.is_none());
+
         let other_partition = repos
             .partitions()
             .create_or_get("one".into(), other_table.id)
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(other_partition.sort_key_ids.is_none());
 
         let parquet_file_params = arbitrary_parquet_file_params(&namespace, &table, &partition);
         let parquet_file = repos
@@ -2101,8 +2091,6 @@ pub(crate) mod test_helpers {
             .create_or_get("foo".into(), table2.id)
             .await
             .unwrap();
-        // sort_key_ids s is null
-        assert!(partition2.sort_key_ids.is_none());
         let files = repos
             .parquet_files()
             .list_by_namespace_not_to_delete(namespace2.id)
@@ -2416,15 +2404,11 @@ pub(crate) mod test_helpers {
             .create_or_get("one".into(), table_1.id)
             .await
             .unwrap();
-        // sort_key_ids s is null
-        assert!(partition_1.sort_key_ids.is_none());
         let partition_2 = repos
             .partitions()
             .create_or_get("one".into(), table_2.id)
             .await
             .unwrap();
-        // sort_key_ids s is null
-        assert!(partition_2.sort_key_ids.is_none());
 
         let parquet_file_params_1 =
             arbitrary_parquet_file_params(&namespace_1, &table_1, &partition_1);
@@ -2479,8 +2463,7 @@ pub(crate) mod test_helpers {
             .create_or_get("one".into(), table.id)
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(partition1.sort_key_ids.is_none());
+
         let partitions = repos
             .partitions()
             .partitions_new_file_between(time_two_hour_ago, None)
@@ -2569,8 +2552,7 @@ pub(crate) mod test_helpers {
             .create_or_get("two".into(), table.id)
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(partition2.sort_key_ids.is_none());
+
         // should return partition one only
         let partitions = repos
             .partitions()
@@ -2679,8 +2661,7 @@ pub(crate) mod test_helpers {
             .create_or_get("three".into(), table.id)
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(partition3.sort_key_ids.is_none());
+
         // should return partition one and two only
         let mut partitions = repos
             .partitions()
@@ -2815,15 +2796,12 @@ pub(crate) mod test_helpers {
             .create_or_get("test_list_by_partiton_not_to_delete_one".into(), table.id)
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(partition.sort_key_ids.is_none());
+
         let partition2 = repos
             .partitions()
             .create_or_get("test_list_by_partiton_not_to_delete_two".into(), table.id)
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(partition2.sort_key_ids.is_none());
 
         let parquet_file_params = arbitrary_parquet_file_params(&namespace, &table, &partition);
 
@@ -2917,8 +2895,6 @@ pub(crate) mod test_helpers {
             .create_or_get("test_update_to_compaction_level_1_one".into(), table.id)
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(partition.sort_key_ids.is_none());
 
         // Set up the window of times we're interested in level 1 files for
         let query_min_time = Timestamp::new(5);
@@ -2994,8 +2970,6 @@ pub(crate) mod test_helpers {
             .create_or_get("test_delete_namespace_one".into(), table_1.id)
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(partition_1.sort_key_ids.is_none());
 
         // parquet files
         let parquet_file_params =
@@ -3032,8 +3006,6 @@ pub(crate) mod test_helpers {
             .create_or_get("test_delete_namespace_two".into(), table_2.id)
             .await
             .unwrap();
-        // sort_key_ids is null
-        assert!(partition_2.sort_key_ids.is_none());
 
         // parquet files
         let parquet_file_params =
@@ -3115,14 +3087,12 @@ pub(crate) mod test_helpers {
         );
 
         // partition's get_by_id should succeed
-        let partition = repos
+        repos
             .partitions()
             .get_by_id(partition_1.id)
             .await
             .unwrap()
             .unwrap();
-        // sort_key_ids is null
-        assert!(partition.sort_key_ids.is_none());
 
         // assert that the namespace, table, column, and parquet files for namespace_2 are still
         // there
@@ -3159,14 +3129,12 @@ pub(crate) mod test_helpers {
         );
 
         // partition's get_by_id should succeed
-        let partition = repos
+        repos
             .partitions()
             .get_by_id(partition_2.id)
             .await
             .unwrap()
             .unwrap();
-        // sort_key_ids is null
-        assert!(partition.sort_key_ids.is_none());
     }
 
     /// Upsert a namespace called `namespace_name` and write `lines` to it.

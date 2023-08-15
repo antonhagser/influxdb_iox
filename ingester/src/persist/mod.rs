@@ -349,8 +349,8 @@ mod tests {
             )
             .await
             .expect("failed to set catalog sort key");
-        // sort_key_ids is null
-        assert!(updated_partition.sort_key_ids.is_none());
+        // Test: sort_key_ids after updating
+        assert!(updated_partition.sort_key_ids().unwrap().is_empty());
 
         // Enqueue the persist job
         let notify = handle.enqueue(Arc::clone(&partition), data).await;

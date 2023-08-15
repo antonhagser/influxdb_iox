@@ -125,8 +125,6 @@ mod tests {
                 .create_or_get("foo".into(), table.id)
                 .await
                 .unwrap();
-            // sort_key_ids is null
-            assert!(partition.sort_key_ids.is_none());
 
             let p1params = ParquetFileParams {
                 namespace_id: namespace.id,

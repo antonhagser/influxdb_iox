@@ -1188,9 +1188,9 @@ impl PartitionRepo for PostgresTxn {
         let v = sqlx::query_as::<_, Partition>(
             r#"
 INSERT INTO partition
-    (partition_key, shard_id, table_id, hash_id, sort_key)
+    (partition_key, shard_id, table_id, hash_id, sort_key, sort_key_ids)
 VALUES
-    ( $1, $2, $3, $4, '{}')
+    ( $1, $2, $3, $4, '{}', '{}')
 ON CONFLICT ON CONSTRAINT partition_key_unique
 DO UPDATE SET partition_key = partition.partition_key
 RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
@@ -2200,8 +2200,9 @@ mod tests {
             .unwrap();
         assert_eq!(table_partitions.len(), 1);
         assert_eq!(table_partitions[0].hash_id().unwrap(), &hash_id);
-        // sort_key_ids is null
-        assert!(table_partitions[0].sort_key_ids.is_none());
+
+        // Test: sort_key_ids from partition_create_or_get_idempotent
+        assert!(table_partitions[0].sort_key_ids().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -2223,9 +2224,9 @@ mod tests {
         sqlx::query(
             r#"
 INSERT INTO partition
-    (partition_key, shard_id, table_id, sort_key)
+    (partition_key, shard_id, table_id, sort_key, sort_key_ids)
 VALUES
-    ( $1, $2, $3, '{}')
+    ( $1, $2, $3, '{}', '{}')
 ON CONFLICT ON CONSTRAINT partition_key_unique
 DO UPDATE SET partition_key = partition.partition_key
 RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
@@ -2243,8 +2244,8 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
         assert_eq!(table_partitions.len(), 1);
         let partition = &table_partitions[0];
         assert!(partition.hash_id().is_none());
-        // assert null sort_key_ids
-        assert!(partition.sort_key_ids.is_none());
+        // Test: sort_key_ids from freshly insert with empty value
+        assert!(partition.sort_key_ids().unwrap().is_empty());
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent
         // and that the hash_id still doesn't get set.
@@ -2253,6 +2254,9 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
             .create_or_get(key, table_id)
             .await
             .expect("idempotent write should succeed");
+
+        // Test: sort_key_ids from freshly insert with empty value
+        assert!(inserted_again.sort_key_ids().unwrap().is_empty());
 
         assert_eq!(partition, &inserted_again);
 
@@ -2270,6 +2274,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
         );
     }
 
+    // TODO: remove this test once we've migrated all the data and sort_key_ids is no longer null
     #[tokio::test]
     async fn existing_partitions_without_sort_key_ids() {
         maybe_skip_integration!();
