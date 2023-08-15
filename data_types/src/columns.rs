@@ -384,7 +384,7 @@ where
     I: IntoIterator<Item = i64>,
 {
     fn from(ids: I) -> Self {
-        Self::new(ids.into_iter().map(ColumnId::new).collect())
+        Self::new(ids.into_iter().map(ColumnId::new).collect::<Vec<_>>())
     }
 }
 
