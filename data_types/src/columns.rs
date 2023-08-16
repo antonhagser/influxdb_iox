@@ -331,7 +331,7 @@ impl TryFrom<proto::column_schema::ColumnType> for ColumnType {
 }
 
 /// Set of columns and used as Set data type.
-/// Its inner is implemneted as a vector becasue postgres does not have set type
+/// Its inner is implemneted as a vector because postgres does not have set type
 #[derive(Debug, Clone, PartialEq, Eq, Hash, sqlx::Type)]
 #[sqlx(transparent, no_pg_array)]
 pub struct ColumnSet(Vec<ColumnId>);
@@ -380,7 +380,7 @@ impl Deref for ColumnSet {
     }
 }
 
-/// Set of sorted columns in a specific given order at created type
+/// Set of sorted columns in a specific given order at created time
 #[derive(Debug, Clone, PartialEq, Eq, Hash, sqlx::Type)]
 #[sqlx(transparent, no_pg_array)]
 pub struct SortedColumnSet(Vec<ColumnId>);
