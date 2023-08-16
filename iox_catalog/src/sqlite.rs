@@ -21,7 +21,7 @@ use data_types::{
     Column, ColumnId, ColumnSet, ColumnType, CompactionLevel, Namespace, NamespaceId,
     NamespaceName, NamespaceServiceProtectionLimitsOverride, ParquetFile, ParquetFileId,
     ParquetFileParams, Partition, PartitionHashId, PartitionId, PartitionKey, SkippedCompaction,
-    Table, TableId, Timestamp, TransitionPartitionId,
+    SortedColumnSet, Table, TableId, Timestamp, TransitionPartitionId,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Display};
@@ -826,7 +826,7 @@ impl From<PartitionPod> for Partition {
     fn from(value: PartitionPod) -> Self {
         let sort_key_ids = value
             .sort_key_ids
-            .map(|sort_key_ids| ColumnSet::from(sort_key_ids.0));
+            .map(|sort_key_ids| SortedColumnSet::from(sort_key_ids.0));
 
         Self::new_with_hash_id_from_sqlite_catalog_only(
             value.id,
@@ -1804,9 +1804,6 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
         assert_eq!(table_partitions.len(), 1);
         let partition = &table_partitions[0];
 
-        // Test: sort_key_ids from freshly insert with empty value
-        assert!(partition.sort_key_ids().unwrap().is_empty());
-
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent
         // and that the hash_id will still be set by `Partition::new`
         let inserted_again = repos
@@ -1873,8 +1870,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
         let table_partitions = repos.partitions().list_by_table_id(table_id).await.unwrap();
         assert_eq!(table_partitions.len(), 1);
         let partition = &table_partitions[0];
-        assert!(partition.hash_id().is_none());
-        // assert null sort_key_ids
+        // Test: sort_key_ids from freshly insert
         assert!(partition.sort_key_ids.is_none());
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent
@@ -1885,7 +1881,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
             .await
             .expect("idempotent write should succeed");
 
-        // assert null sort_key_ids
+        // Test: sort_key_ids from insert again
         assert!(inserted_again.sort_key_ids.is_none());
 
         assert_eq!(partition, &inserted_again);

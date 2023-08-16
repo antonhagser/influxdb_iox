@@ -1,6 +1,6 @@
 //! Types having to do with partitions.
 
-use crate::ColumnSet;
+use crate::SortedColumnSet;
 
 use super::{TableId, Timestamp};
 
@@ -391,7 +391,7 @@ pub struct Partition {
     /// For example, updating `A,B,C` to either `A,D,B,C` or `A,B,C,D`
     /// is legal. However, updating to `A,C,D,B` is not because the
     /// relative order of B and C have been reversed.
-    pub sort_key_ids: Option<ColumnSet>,
+    pub sort_key_ids: Option<SortedColumnSet>,
 
     /// The time at which the newest file of the partition is created
     pub new_file_at: Option<Timestamp>,
@@ -407,7 +407,7 @@ impl Partition {
         table_id: TableId,
         partition_key: PartitionKey,
         sort_key: Vec<String>,
-        sort_key_ids: Option<ColumnSet>,
+        sort_key_ids: Option<SortedColumnSet>,
         new_file_at: Option<Timestamp>,
     ) -> Self {
         let hash_id = PartitionHashId::new(table_id, &partition_key);
@@ -434,7 +434,7 @@ impl Partition {
         table_id: TableId,
         partition_key: PartitionKey,
         sort_key: Vec<String>,
-        sort_key_ids: Option<ColumnSet>,
+        sort_key_ids: Option<SortedColumnSet>,
         new_file_at: Option<Timestamp>,
     ) -> Self {
         Self {
@@ -469,7 +469,7 @@ impl Partition {
     }
 
     /// The sort_key_ids if present
-    pub fn sort_key_ids(&self) -> Option<&ColumnSet> {
+    pub fn sort_key_ids(&self) -> Option<&SortedColumnSet> {
         self.sort_key_ids.as_ref()
     }
 }

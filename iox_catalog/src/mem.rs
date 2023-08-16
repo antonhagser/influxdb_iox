@@ -12,7 +12,7 @@ use crate::{
     DEFAULT_MAX_COLUMNS_PER_TABLE, DEFAULT_MAX_TABLES,
 };
 use async_trait::async_trait;
-use data_types::ColumnSet;
+use data_types::SortedColumnSet;
 use data_types::{
     partition_template::{
         NamespacePartitionTemplateOverride, TablePartitionTemplateOverride, TemplatePart,
@@ -567,7 +567,7 @@ impl PartitionRepo for MemTxn {
                     table_id,
                     key,
                     vec![],
-                    Some(ColumnSet::new(vec![])),
+                    Some(SortedColumnSet::new(vec![])),
                     None,
                 );
                 stage.partitions.push(p);

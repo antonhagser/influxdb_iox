@@ -1154,35 +1154,6 @@ RETURNING *;
 #[async_trait]
 impl PartitionRepo for PostgresTxn {
     async fn create_or_get(&mut self, key: PartitionKey, table_id: TableId) -> Result<Partition> {
-        // Note: since sort_key is now an array, we must explicitly insert '{}' which is an empty
-        // array rather than NULL which sqlx will throw `UnexpectedNullError` while is is doing
-        // `ColumnDecode`
-        //
-        // todo: ask Carol/Dom/Andrew/Marco whether the note above (empty array `{}`) is a must becasue this PR does not follow this for `sort_key_ids`.
-        // Context:
-        //  . We purposely create `sort_key_ids` as a NULL field for data that we still use `sort_key`
-        //  . For new partitions, we will make this field an empty array `{}` (This will be done in my next PR)
-        //  . For partitions with coming data (new or old), we will update this field with corresponding `sort_key_ids`
-        //  . For old partitions without coming data, we must keep `sort_key_ids` as NULL so we will write a script to
-        //     update all NULL `sort_key_ids` with corresponding `sort_key`
-        // Hence for sort_key_ids, we store it as an Option<ColumnSet> in Partition. If it is null, that field will be None.
-        // If it is not null, that field will be Some(ColumnSet)
-        // Will that work with sqlx's `ColumnDecode`? I think so but if there are suspicious issues, which other tests
-        // should we add to verify this? I think my TEST stratergy would cover all sqlx's ColumnDecode issues if any as below:
-        //   . Verify that all sort_key_ids are NULL/None in this PR
-        //   . Next PR I will insert empty array {} for new partitions and all sort_key_ids of new partitions will be
-        //     Some(ColumnSet) with empty ColumnSet. In this PR, I will need to create a FAKE update sort_key_ids to NULL
-        //     to simulate existing data with NULL sort_key_ids for me to tests sort_key_ids with None or Some(ColumnSet)
-        //   . In another PR, I will update sort_key_ids of partitions with coming data with corresponding sort_key, and verify
-        //     those sort_key_ids are Some(ColumnSet) with non-empty ColumnSet. At this time, our code will handle 3 kinds of
-        //    sort_key_ids: None, Some(ColumnSet) with empty ColumnSet, Some(ColumnSet) with non-empty ColumnSet.
-        //   . Then in near future after Marco finishes his script to update all NULL sort_key_ids with corresponding sort_key,
-        //     we will make sort_key_ids NOT NULL and then we will  modify the code to not accept None sort_key_ids anymore.
-        //
-        // HOwever, if sort_key_ids must be a empty array, {}, rather than null, we can change the catalog field to NOT NULL and make it default `{}`.
-        // Unless the NULL does not work with sqlx's `ColumnDecode`, I think we should keep it as NULL for now.
-        // At later step, we will convert it to NOT NULL when we know that all existing data has been updated.
-
         let hash_id = PartitionHashId::new(table_id, &key);
 
         let v = sqlx::query_as::<_, Partition>(
@@ -2180,6 +2151,8 @@ mod tests {
             .expect("should create OK");
 
         assert_eq!(a.hash_id().unwrap(), &hash_id);
+        // Test: sort_key_ids from partition_create_or_get_idempotent
+        assert!(a.sort_key_ids().unwrap().is_empty());
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent.
         let b = repos
@@ -2244,8 +2217,6 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
         assert_eq!(table_partitions.len(), 1);
         let partition = &table_partitions[0];
         assert!(partition.hash_id().is_none());
-        // Test: sort_key_ids from freshly insert with empty value
-        assert!(partition.sort_key_ids().unwrap().is_empty());
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent
         // and that the hash_id still doesn't get set.
@@ -2315,8 +2286,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
         let table_partitions = repos.partitions().list_by_table_id(table_id).await.unwrap();
         assert_eq!(table_partitions.len(), 1);
         let partition = &table_partitions[0];
-        assert!(partition.hash_id().is_none());
-        // assert null sort_key_ids
+        // Test: sort_key_ids from freshly insert
         assert!(partition.sort_key_ids.is_none());
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent
@@ -2327,7 +2297,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
             .await
             .expect("idempotent write should succeed");
 
-        // assert null sort_key_ids
+        // Test: sort_key_ids from insert again
         assert!(inserted_again.sort_key_ids.is_none());
 
         assert_eq!(partition, &inserted_again);

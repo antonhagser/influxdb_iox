@@ -1955,7 +1955,6 @@ pub(crate) mod test_helpers {
             .create_or_get("one".into(), table.id)
             .await
             .unwrap();
-
         let other_partition = repos
             .partitions()
             .create_or_get("one".into(), other_table.id)
@@ -2463,7 +2462,6 @@ pub(crate) mod test_helpers {
             .create_or_get("one".into(), table.id)
             .await
             .unwrap();
-
         let partitions = repos
             .partitions()
             .partitions_new_file_between(time_two_hour_ago, None)
@@ -2552,7 +2550,6 @@ pub(crate) mod test_helpers {
             .create_or_get("two".into(), table.id)
             .await
             .unwrap();
-
         // should return partition one only
         let partitions = repos
             .partitions()
@@ -2661,7 +2658,6 @@ pub(crate) mod test_helpers {
             .create_or_get("three".into(), table.id)
             .await
             .unwrap();
-
         // should return partition one and two only
         let mut partitions = repos
             .partitions()
@@ -2796,7 +2792,6 @@ pub(crate) mod test_helpers {
             .create_or_get("test_list_by_partiton_not_to_delete_one".into(), table.id)
             .await
             .unwrap();
-
         let partition2 = repos
             .partitions()
             .create_or_get("test_list_by_partiton_not_to_delete_two".into(), table.id)
