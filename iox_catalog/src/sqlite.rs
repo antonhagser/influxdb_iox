@@ -1802,8 +1802,6 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
         let table_partitions = repos.partitions().list_by_table_id(table_id).await.unwrap();
         assert_eq!(table_partitions.len(), 1);
         let partition = &table_partitions[0];
-        // Test: sort_key_ids from freshly insert
-        assert!(partition.sort_key_ids.is_none());
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent
         // and that the hash_id will still be set by `Partition::new`
@@ -1814,8 +1812,6 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
             .expect("idempotent write should succeed");
 
         assert_eq!(partition, &inserted_again);
-        // Test: sort_key_ids from insert again
-        assert!(inserted_again.sort_key_ids.is_none());
 
         // Create a Parquet file record in this partition to ensure we don't break new data
         // ingestion for old-style partitions
@@ -1870,7 +1866,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
         let table_partitions = repos.partitions().list_by_table_id(table_id).await.unwrap();
         assert_eq!(table_partitions.len(), 1);
         let partition = &table_partitions[0];
-        // assert null sort_key_ids
+        // Test: sort_key_ids from freshly insert
         assert!(partition.sort_key_ids.is_none());
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent
@@ -1881,7 +1877,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
             .await
             .expect("idempotent write should succeed");
 
-        // assert null sort_key_ids
+        // Test: sort_key_ids from insert again
         assert!(inserted_again.sort_key_ids.is_none());
 
         assert_eq!(partition, &inserted_again);
