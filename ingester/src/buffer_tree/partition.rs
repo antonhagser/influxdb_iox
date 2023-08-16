@@ -1001,7 +1001,7 @@ mod tests {
             .create_or_get("test".into(), table_id)
             .await
             .expect("should create");
-        // sort key is null
+        // Test: sort_key_ids from create_or_get
         assert!(partition.sort_key_ids.is_none());
 
         let updated_partition = catalog
@@ -1011,7 +1011,7 @@ mod tests {
             .cas_sort_key(&partition.transition_partition_id(), None, &["terrific"])
             .await
             .unwrap();
-        // sort key is still null
+        // Test: sort_key_ids after updating
         assert!(updated_partition.sort_key_ids.is_none());
 
         // Read the just-created sort key (None)

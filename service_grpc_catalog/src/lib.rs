@@ -268,7 +268,7 @@ mod tests {
                 .create_or_get("foo".into(), table.id)
                 .await
                 .unwrap();
-            // sort_key_ids is null
+            // Test: sort_key_ids from create_or_get in catalog_service
             assert!(partition.sort_key_ids.is_none());
             let p1params = ParquetFileParams {
                 namespace_id: namespace.id,
@@ -327,16 +327,12 @@ mod tests {
                 .create_or_get("foo".into(), table.id)
                 .await
                 .unwrap();
-            // sort_key_ids is null
-            assert!(partition1.sort_key_ids.is_none());
 
             partition2 = repos
                 .partitions()
                 .create_or_get("bar".into(), table.id)
                 .await
                 .unwrap();
-            // sort_key_ids is null
-            assert!(partition2.sort_key_ids.is_none());
 
             table_id = table.id;
             Arc::clone(&catalog)

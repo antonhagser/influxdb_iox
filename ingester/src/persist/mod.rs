@@ -349,7 +349,7 @@ mod tests {
             )
             .await
             .expect("failed to set catalog sort key");
-        // sort_key_ids is null
+        // Test: sort_key_ids after updating
         assert!(updated_partition.sort_key_ids.is_none());
 
         // Enqueue the persist job

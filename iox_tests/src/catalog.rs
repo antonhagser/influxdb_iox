@@ -336,7 +336,7 @@ impl TestTable {
             )
             .await
             .unwrap();
-        // sort_key_ids is null
+        // Test: sort_key_ids after updating
         assert!(partition.sort_key_ids.is_none());
 
         Arc::new(TestPartition {
@@ -462,7 +462,7 @@ impl TestPartition {
             )
             .await
             .unwrap();
-        // sort_key_ids is null
+        // Test: sort_key_ids after updating
         assert!(partition.sort_key_ids.is_none());
 
         Arc::new(Self {
@@ -806,7 +806,7 @@ async fn update_catalog_sort_key_if_needed<R>(
                     )
                     .await
                     .unwrap();
-                // sort_key_ids is null
+                // Test: sort_key_ids after updating
                 assert!(updated_partition.sort_key_ids.is_none());
             }
         }
@@ -818,7 +818,7 @@ async fn update_catalog_sort_key_if_needed<R>(
                 .cas_sort_key(id, None, &new_columns)
                 .await
                 .unwrap();
-            // sort_key_ids is null
+            // Test: sort_key_ids after updating
             assert!(updated_partition.sort_key_ids.is_none());
         }
     }
