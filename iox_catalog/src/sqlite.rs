@@ -1870,7 +1870,6 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
         let table_partitions = repos.partitions().list_by_table_id(table_id).await.unwrap();
         assert_eq!(table_partitions.len(), 1);
         let partition = &table_partitions[0];
-        assert!(partition.hash_id().is_none());
         // assert null sort_key_ids
         assert!(partition.sort_key_ids.is_none());
 

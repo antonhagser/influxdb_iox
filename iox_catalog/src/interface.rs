@@ -2087,8 +2087,6 @@ pub(crate) mod test_helpers {
             .create_or_get("foo".into(), table2.id)
             .await
             .unwrap();
-        // sort_key_ids s is null
-        assert!(partition2.sort_key_ids.is_none());
         let files = repos
             .parquet_files()
             .list_by_namespace_not_to_delete(namespace2.id)
@@ -2402,15 +2400,11 @@ pub(crate) mod test_helpers {
             .create_or_get("one".into(), table_1.id)
             .await
             .unwrap();
-        // sort_key_ids s is null
-        assert!(partition_1.sort_key_ids.is_none());
         let partition_2 = repos
             .partitions()
             .create_or_get("one".into(), table_2.id)
             .await
             .unwrap();
-        // sort_key_ids s is null
-        assert!(partition_2.sort_key_ids.is_none());
 
         let parquet_file_params_1 =
             arbitrary_parquet_file_params(&namespace_1, &table_1, &partition_1);

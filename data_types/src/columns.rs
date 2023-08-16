@@ -380,15 +380,6 @@ impl Deref for ColumnSet {
     }
 }
 
-impl<I> From<I> for ColumnSet
-where
-    I: IntoIterator<Item = i64>,
-{
-    fn from(ids: I) -> Self {
-        Self::new(ids.into_iter().map(ColumnId::new).collect::<Vec<_>>())
-    }
-}
-
 /// Set of sorted columns in a specific given order at created type
 #[derive(Debug, Clone, PartialEq, Eq, Hash, sqlx::Type)]
 #[sqlx(transparent, no_pg_array)]

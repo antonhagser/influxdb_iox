@@ -125,7 +125,6 @@ mod tests {
                 .create_or_get("foo".into(), table.id)
                 .await
                 .unwrap();
-
             let p1params = ParquetFileParams {
                 namespace_id: namespace.id,
                 table_id: table.id,
