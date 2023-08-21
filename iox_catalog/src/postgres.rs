@@ -802,7 +802,17 @@ WHERE name=$1 AND {v};
         let flagged_at = Timestamp::from(self.time_provider.now());
 
         // note that there is a uniqueness constraint on the name column in the DB
-        sqlx::query(r#"UPDATE namespace SET deleted_at=$1 WHERE name = $2;"#)
+        sqlx::query(r#"
+WITH namespace_id as (
+    UPDATE iox_catalog.namespace
+    SET deleted_at=$1
+    WHERE name = $2
+    RETURNING id
+)
+UPDATE iox_catalog.parquet_file
+SET to_delete=$1
+WHERE namespace_id in (SELECT id FROM namespace_id)
+"#)
             .bind(flagged_at) // $1
             .bind(name) // $2
             .execute(&mut self.inner)
