@@ -802,23 +802,55 @@ WHERE name=$1 AND {v};
         let flagged_at = Timestamp::from(self.time_provider.now());
 
         // note that there is a uniqueness constraint on the name column in the DB
-        sqlx::query(r#"
-WITH namespace_id as (
-    UPDATE iox_catalog.namespace
-    SET deleted_at=$1
-    WHERE name = $2
-    RETURNING id
-)
-UPDATE iox_catalog.parquet_file
-SET to_delete=$1
-WHERE namespace_id in (SELECT id FROM namespace_id)
-"#)
+        let rec = sqlx::query_as::<_, Namespace>(r#"
+UPDATE namespace
+SET deleted_at=$1
+WHERE name = $2
+RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, deleted_at,
+          partition_template;
+        "#,
+        )
             .bind(flagged_at) // $1
             .bind(name) // $2
-            .execute(&mut self.inner)
-            .await
-            .context(interface::CouldNotDeleteNamespaceSnafu)
-            .map(|_| ())
+            .fetch_one(&mut self.inner)
+            .await;
+            // .context(interface::CouldNotDeleteNamespaceSnafu);
+
+        let namespace = rec.map_err(|e| match e {
+            sqlx::Error::RowNotFound => Error::NamespaceNotFoundByName {
+                name: name.to_string(),
+            },
+            _ => Error::SqlxError { source: e },
+        })?;
+
+        loop {
+            let deleted = sqlx::query(
+                r#"
+WITH parquet_file_ids as (
+    SELECT parquet_file.id
+    FROM parquet_file
+    WHERE namespace.id = $1
+    AND parquet_file.to_delete IS NULL
+    LIMIT $2
+)
+UPDATE parquet_file
+SET to_delete = $3
+WHERE id IN (SELECT id FROM parquet_file_ids)
+RETURNING id;
+            "#,
+            )
+                .bind(namespace.id) // $1
+                .bind(MAX_PARQUET_FILES_SELECTED_ONCE_FOR_RETENTION) // $2
+                .bind(flagged_at) // $3
+                .fetch_all(&mut self.inner)
+                .await
+                .map_err(|e| Error::SqlxError { source: e })?;
+            if deleted.is_empty() {
+                break;
+            }
+        }
+
+        Ok(())
     }
 
     async fn update_table_limit(&mut self, name: &str, new_max: i32) -> Result<Namespace> {
