@@ -8,7 +8,9 @@ use data_types::{
     partition_template::{NamespacePartitionTemplateOverride, TablePartitionTemplateOverride},
     ColumnId, ColumnSchema, NamespaceId, NamespaceName, NamespaceSchema, TableId, TableSchema,
 };
-use iox_catalog::{interface::Catalog, mem::MemCatalog};
+use iox_catalog::{
+    interface::Catalog, mem::MemCatalog, DEFAULT_MAX_COLUMNS_PER_TABLE, DEFAULT_MAX_TABLES,
+};
 use once_cell::sync::Lazy;
 use router::namespace_cache::{
     MemoryNamespaceCache, NamespaceCache, ReadThroughCache, ShardedCache,
@@ -147,8 +149,8 @@ fn generate_namespace_schema(tables: usize, columns_per_table: usize) -> Namespa
                 (format!("table{i}"), schema)
             })
             .collect::<BTreeMap<_, _>>(),
-        max_columns_per_table: usize::MAX,
-        max_tables: usize::MAX,
+        max_columns_per_table: columns_per_table.max(DEFAULT_MAX_COLUMNS_PER_TABLE as usize),
+        max_tables: tables.max(DEFAULT_MAX_TABLES as usize),
         retention_period_ns: None,
         partition_template,
     }

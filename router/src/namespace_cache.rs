@@ -51,11 +51,11 @@ pub trait NamespaceCache: Debug + Send + Sync {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ChangeStats {
     /// The names of the new tables added to the cache.
-    pub(crate) new_table_names: Vec<String>,
+    pub(crate) new_table_names: Vec<Arc<String>>,
 
     /// The set of (TableName, ColumnName) for all columns added to the
     /// namespace schema by this update.
-    pub(crate) new_column_names_per_table: Vec<(String, String)>,
+    pub(crate) new_column_names_per_table: Vec<(Arc<String>, String)>,
 
     /// Indicates whether the namespace schema produced a new entry
     /// in the cache.
