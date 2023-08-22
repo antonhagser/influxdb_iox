@@ -1,7 +1,7 @@
 //! Caching of [`NamespaceSchema`].
 
 mod memory;
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashSet;
 pub use memory::*;
 
 mod sharded_cache;
@@ -54,9 +54,9 @@ pub struct ChangeStats {
     /// The names of the new tables added to the cache.
     pub(crate) new_table_names: HashSet<String>,
 
-    /// The set of (TableName, ColumnName) for all columns added to the
+    /// The set of (TableName, Vec<ColumnName>) for all columns added to the
     /// namespace schema by this update.
-    pub(crate) new_column_names_per_table: HashMap<String, Vec<String>>,
+    pub(crate) new_column_names_per_table: Vec<(String, Vec<String>)>,
 
     /// The number of new columns added by the change.
     pub(crate) new_column_count: usize,

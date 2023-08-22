@@ -102,7 +102,7 @@ fn merge_schema_additive(
     assert_eq!(old_ns.partition_template, new_ns.partition_template);
 
     let mut new_column_count = 0;
-    let mut new_column_names_per_table: HashMap<String, Vec<String>> = Default::default();
+    let mut new_column_names_per_table: Vec<(String, Vec<String>)> = Default::default();
 
     // Table schema missing from the new schema are added from the old. If the
     // table exists in both the new and the old namespace schema then any column
@@ -145,8 +145,7 @@ fn merge_schema_additive(
                     .collect::<Vec<_>>();
                 if !new_columns.is_empty() {
                     new_column_count += new_columns.len();
-                    new_column_names_per_table
-                        .insert_unique_unchecked(old_table_name.to_owned(), new_columns);
+                    new_column_names_per_table.push((old_table_name.to_owned(), new_columns));
                 }
             }
             None => {
@@ -177,7 +176,7 @@ fn merge_schema_additive(
             .map(|col_name| col_name.to_string())
             .collect::<Vec<_>>();
         new_column_count += new_columns.len();
-        new_column_names_per_table.insert_unique_unchecked(new_table.clone(), new_columns);
+        new_column_names_per_table.push((new_table.clone(), new_columns));
     }
 
     // To compute the change stats for the merge it is still necessary to iterate
@@ -349,7 +348,7 @@ mod tests {
                                                 .collect::<Vec<_>>(),
                                         )
                                     })
-                                    .collect::<HashMap<_, _>>(),
+                                    .collect::<Vec<(_, _)>>(),
                                 did_create: true,
                                 new_column_count: schema_update_1.tables.values().map(|table_schema| table_schema.column_count()).sum()
                     },
@@ -360,7 +359,7 @@ mod tests {
             assert_eq!(*new_schema, want_namespace_schema);
             let want_new_columns = [
                 (String::from(table_name), vec!(column_2.name.clone()))
-            ].into_iter().collect::<HashMap<_, _>>();
+            ].into_iter().collect::<Vec<(_, _)>>();
             assert_eq!(
                 new_stats,
                 ChangeStats{
@@ -475,7 +474,7 @@ mod tests {
                                         .collect::<Vec<_>>(),
                                 )
                             })
-                            .collect::<HashMap<_, _>>(),
+                            .collect::<Vec<(_, _)>>(),
                         did_create: true,
                         new_column_count: schema_update_1.tables.values().map(|table_schema| table_schema.column_count()).sum(),
                     },
@@ -500,7 +499,7 @@ mod tests {
                     )
                 ]
                 .into_iter()
-                .collect::<HashMap<_,_>>(),
+                .collect::<Vec<(_,_)>>(),
                 did_create: false,
                 new_column_count: new_table_schema.column_count(),
             });
