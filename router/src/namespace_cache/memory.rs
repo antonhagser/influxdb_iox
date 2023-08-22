@@ -102,7 +102,9 @@ fn merge_schema_additive(
     assert_eq!(old_ns.partition_template, new_ns.partition_template);
 
     let mut new_column_count = 0;
-    let mut new_column_names_per_table: Vec<(String, Vec<String>)> = Default::default();
+    let mut new_column_names_per_table: Vec<(String, Vec<String>)> = Vec::with_capacity(
+        new_ns.max_columns_per_table * (new_ns.tables.len() - old_ns.tables.len()),
+    );
 
     // Table schema missing from the new schema are added from the old. If the
     // table exists in both the new and the old namespace schema then any column
@@ -158,25 +160,20 @@ fn merge_schema_additive(
 
     // Work out the set of new tables added to the namespace schema and capture
     // their schema in the [`ChangeStats`].
-    let new_table_names = new_ns
-        .tables
-        .keys()
-        .filter(|&new_table_name| !old_ns.tables.contains_key(new_table_name))
-        .cloned()
-        .collect::<HashSet<_>>();
-
-    for new_table in new_table_names.iter() {
-        let new_columns = new_ns
-            .tables
-            .get(new_table)
-            .unwrap()
-            .columns
-            .names()
-            .iter()
-            .map(|col_name| col_name.to_string())
-            .collect::<Vec<_>>();
-        new_column_count += new_columns.len();
-        new_column_names_per_table.push((new_table.clone(), new_columns));
+    let mut new_table_names =
+        HashSet::<String>::with_capacity(new_ns.tables.len() - old_ns.tables.len());
+    for (table_name, schema) in &new_ns.tables {
+        if !old_ns.tables.contains_key(table_name) {
+            new_table_names.insert_unique_unchecked(table_name.clone());
+            let new_columns = schema
+                .columns
+                .names()
+                .iter()
+                .map(|col_name| col_name.to_string())
+                .collect::<Vec<_>>();
+            new_column_count += new_columns.len();
+            new_column_names_per_table.push((table_name.clone(), new_columns));
+        }
     }
 
     // To compute the change stats for the merge it is still necessary to iterate
