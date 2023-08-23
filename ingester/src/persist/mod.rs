@@ -409,7 +409,7 @@ mod tests {
             assert_eq!(sort_key.to_columns().collect::<Vec<_>>(), &["region", "time"]);
             // TODO: similarly as TODO above, the assert below will be flaky because column id are not deterministic.
             // The lp provided in partition_with_write has 3 columns "region", "temp" and "time" but
-            // when they are created, their column ids are NOT be deterministic and swapping between 1, 2, 3.
+            // when they are created, their column ids are NOT deterministic and swapped between 1, 2, 3.
             // Need to chat with Dom to see how to make this test deterministic or how to read columns IDs of "region" and "time"
             // to have the right values for the assert
             //

@@ -2181,8 +2181,7 @@ mod tests {
 
         assert_eq!(a.hash_id().unwrap(), &hash_id);
         // Test: sort_key_ids from partition_create_or_get_idempotent
-        // assert!(a.sort_key_ids().unwrap().is_empty());
-        assert!(a.sort_key_ids().is_none());
+        assert!(a.sort_key_ids().unwrap().is_empty());
 
         // Call create_or_get for the same (key, table_id) pair, to ensure the write is idempotent.
         let b = repos

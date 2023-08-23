@@ -84,8 +84,7 @@ mod tests {
             .expect("should create");
 
         // Test: sort_key_ids from create_or_get which is empty
-        // assert!(partition.sort_key_ids().unwrap().is_empty());
-        assert!(partition.sort_key_ids().is_none());
+        assert!(partition.sort_key_ids().unwrap().is_empty());
 
         let fetcher = SortKeyResolver::new(
             PARTITION_KEY.into(),
