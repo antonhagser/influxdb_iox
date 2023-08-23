@@ -42,7 +42,8 @@ impl SortKeyResolver {
                     .create_or_get(self.partition_key.clone(), self.table_id)
                     .await?;
 
-                let (sort_key, sort_key_ids) = (partition.sort_key(), partition.sort_key_ids);
+                let (sort_key, sort_key_ids) =
+                    (partition.sort_key(), partition.sort_key_ids_none_if_empty());
 
                 Result::<_, iox_catalog::interface::Error>::Ok((sort_key, sort_key_ids))
             })
@@ -83,7 +84,8 @@ mod tests {
             .expect("should create");
 
         // Test: sort_key_ids from create_or_get which is empty
-        assert!(partition.sort_key_ids().unwrap().is_empty());
+        // assert!(partition.sort_key_ids().unwrap().is_empty());
+        assert!(partition.sort_key_ids().is_none());
 
         let fetcher = SortKeyResolver::new(
             PARTITION_KEY.into(),
@@ -110,6 +112,9 @@ mod tests {
         // fetch sort key for the partition from the catalog
         let (fetched_sort_key, fetched_sort_key_ids) = fetcher.fetch().await;
         assert_eq!(fetched_sort_key, catalog_state.sort_key());
-        assert_eq!(fetched_sort_key_ids, catalog_state.sort_key_ids);
+        assert_eq!(
+            fetched_sort_key_ids,
+            catalog_state.sort_key_ids_none_if_empty()
+        );
     }
 }

@@ -86,7 +86,7 @@ impl PartitionProvider for CatalogPartitionResolver {
             namespace_name,
             table_id,
             table,
-            SortKeyState::Provided(p.sort_key()),
+            SortKeyState::Provided(p.sort_key(), p.sort_key_ids_none_if_empty()),
         )))
     }
 }
@@ -160,7 +160,7 @@ mod tests {
             got.lock().table().get().await.name().to_string(),
             table_name.to_string()
         );
-        assert_matches!(got.lock().sort_key(), SortKeyState::Provided(None));
+        assert_matches!(got.lock().sort_key(), SortKeyState::Provided(None, None));
         assert!(got.lock().partition_key.ptr_eq(&callers_partition_key));
 
         let mut repos = catalog.repositories().await;
