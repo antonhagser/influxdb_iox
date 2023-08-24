@@ -583,7 +583,7 @@ impl RemoteImporter {
 
             match res {
                 Ok(partition) => return Ok(partition),
-                Err(CasFailure::ValueMismatch(_, _)) => {
+                Err(CasFailure::ValueMismatch(_)) => {
                     debug!("Value mismatch when setting sort key, retrying...");
                     continue;
                 }

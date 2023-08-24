@@ -24,12 +24,12 @@ pub const MAX_PARQUET_FILES_SELECTED_ONCE_FOR_DELETE: i64 = 10_000;
 
 /// An error wrapper detailing the reason for a compare-and-swap failure.
 #[derive(Debug)]
-pub enum CasFailure<T, Q> {
+pub enum CasFailure<T> {
     /// The compare-and-swap failed because the current value differers from the
     /// comparator.
     ///
     /// Contains the new current value.
-    ValueMismatch(T, Q),
+    ValueMismatch(T),
     /// A query error occurred.
     QueryError(Error),
 }
@@ -418,7 +418,7 @@ pub trait PartitionRepo: Send + Sync {
         old_sort_key: Option<Vec<String>>,
         new_sort_key: &[&str],
         new_sort_key_ids: &SortedColumnSet,
-    ) -> Result<Partition, CasFailure<Vec<String>, Option<SortedColumnSet>>>;
+    ) -> Result<Partition, CasFailure<(Vec<String>, Option<SortedColumnSet>)>>;
 
     /// Record an instance of a partition being selected for compaction but compaction was not
     /// completed for the specified reason.
@@ -1672,7 +1672,7 @@ pub(crate) mod test_helpers {
             )
             .await
             .expect_err("CAS with incorrect value should fail");
-        assert_matches!(err, CasFailure::ValueMismatch(old_sort_key, old_sort_key_ids) => {
+        assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
             assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
             assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
         });
@@ -1721,7 +1721,7 @@ pub(crate) mod test_helpers {
             )
             .await
             .expect_err("CAS with incorrect value should fail");
-        assert_matches!(err, CasFailure::ValueMismatch(old_sort_key, old_sort_key_ids) => {
+        assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
             assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
             assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
         });
@@ -1737,7 +1737,7 @@ pub(crate) mod test_helpers {
             )
             .await
             .expect_err("CAS with incorrect value should fail");
-        assert_matches!(err, CasFailure::ValueMismatch(old_sort_key, old_sort_key_ids) => {
+        assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
             assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
             assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
         });

@@ -13,7 +13,7 @@ mod worker;
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{collections::HashSet, sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
     use data_types::{CompactionLevel, ParquetFile, SortedColumnSet};
@@ -237,11 +237,11 @@ mod tests {
         assert_eq!(partition.lock().completed_persistence_count(), 1);
 
         // Assert the sort key was also updated
-        assert_matches!(partition.lock().sort_key(), SortKeyState::Provided(Some(sort_key), Some(_sort_key_ids)) => {
-            assert_eq!(sort_key.to_columns().collect::<Vec<_>>(), &["region", "time"]);
-            // TODO: turn this assert on when we know how to make columns ID deterministic or have a way to get columns IDs of "region" and "time"
-            // See TODO below for explanation
-            // assert_eq!(sort_key_ids, &SortedColumnSet::from([1, 3]));
+        assert_matches!(partition.lock().sort_key(), SortKeyState::Provided(Some(sort_key), Some(sort_key_ids)) => {
+            let sort_key_columns = sort_key.to_columns().collect::<Vec<_>>();
+            assert_eq!(sort_key_columns, &["region", "time"]);
+            // Ensure IDs are unique per column name and still has the same length
+            assert_eq!(sort_key_ids.iter().collect::<HashSet<_>>().len(), sort_key_columns.len());
         });
 
         // Ensure a file was made visible in the catalog
@@ -357,11 +357,12 @@ mod tests {
                 // must use column names that exist in the partition data
                 &["region"],
                 // column id of region
-                // TODO (chat with Dom about this test setup): this simulation of concurrent cas_sort_key will update the sortkey but
-                // columns are not yet created at this time. Hence this columnID (2) is not the right map to the "region" name.
-                // Thus in near-future PR when we go and look for column ids to verify and update sort_key_ids
-                // it will fail with an error.
-                // We need to modify this test a bit to have deterministic/existing column id for "region" column
+                //
+                // Due to test simulation that include 3 columns (region, temp and time) each can have random columnID
+                // with value either 1, 2, or 3, the value 2 below is not compeleltely mapped to region column.
+                // If in the future that we modify our code to verify that, this test will be falky and should be updated
+                // The reason we accept it right now becasue there is no way to get columnID of a name without changing a lot
+                // in test setup
                 &SortedColumnSet::from([2]),
             )
             .await
@@ -404,16 +405,12 @@ mod tests {
 
         // Assert the sort key was also updated, adding the new columns (time) to the
         // end of the concurrently updated catalog sort key.
-        assert_matches!(partition.lock().sort_key(), SortKeyState::Provided(Some(sort_key), Some(_sort_key_ids)) => {
+        assert_matches!(partition.lock().sort_key(), SortKeyState::Provided(Some(sort_key), Some(sort_key_ids)) => {
             // Before there is only ["region"] (manual sort key update above). Now ["region", "time"]
-            assert_eq!(sort_key.to_columns().collect::<Vec<_>>(), &["region", "time"]);
-            // TODO: similarly as TODO above, the assert below will be flaky because column id are not deterministic.
-            // The lp provided in partition_with_write has 3 columns "region", "temp" and "time" but
-            // when they are created, their column ids are NOT deterministic and swapped between 1, 2, 3.
-            // Need to chat with Dom to see how to make this test deterministic or how to read columns IDs of "region" and "time"
-            // to have the right values for the assert
-            //
-            // assert_eq!(sort_key_ids, &SortedColumnSet::from([1, 3]));
+            let sort_key_columns = sort_key.to_columns().collect::<Vec<_>>();
+            assert_eq!(sort_key_columns, &["region", "time"]);
+            // Ensure IDs are unique per column name and still has the same length
+            assert_eq!(sort_key_ids.iter().collect::<HashSet<_>>().len(), sort_key_columns.len());
         });
 
         // Ensure a file was made visible in the catalog

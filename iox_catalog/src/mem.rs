@@ -664,7 +664,7 @@ impl PartitionRepo for MemTxn {
         old_sort_key: Option<Vec<String>>,
         new_sort_key: &[&str],
         new_sort_key_ids: &SortedColumnSet,
-    ) -> Result<Partition, CasFailure<Vec<String>, Option<SortedColumnSet>>> {
+    ) -> Result<Partition, CasFailure<(Vec<String>, Option<SortedColumnSet>)>> {
         verify_sort_key_length(new_sort_key, new_sort_key_ids);
 
         let stage = self.stage();
@@ -682,10 +682,10 @@ impl PartitionRepo for MemTxn {
                 Ok(p.clone())
             }
             Some(p) => {
-                return Err(CasFailure::ValueMismatch(
+                return Err(CasFailure::ValueMismatch((
                     p.sort_key.clone(),
                     p.sort_key_ids.clone(),
-                ))
+                )));
             }
             None => Err(CasFailure::QueryError(Error::PartitionNotFound {
                 id: partition_id.clone(),

@@ -414,7 +414,7 @@ where
                 {
                     Ok(_) => ControlFlow::Break(Ok(new_sort_key_colids)),
                     Err(CasFailure::QueryError(e)) => ControlFlow::Continue(e),
-                    Err(CasFailure::ValueMismatch(observed_sort_key, observed_sort_key_ids))
+                    Err(CasFailure::ValueMismatch((observed_sort_key, observed_sort_key_ids)))
                         if observed_sort_key == new_sort_key_str
                             && observed_sort_key_ids == Some(new_sort_key_colids.clone()) =>
                     {
@@ -442,7 +442,7 @@ where
                         );
                         ControlFlow::Break(Ok(new_sort_key_colids))
                     }
-                    Err(CasFailure::ValueMismatch(observed_sort_key, observed_sort_key_ids)) => {
+                    Err(CasFailure::ValueMismatch((observed_sort_key, observed_sort_key_ids))) => {
                         // Another ingester concurrently updated the sort
                         // key.
                         //
@@ -484,8 +484,22 @@ where
     match update_result {
         Ok(new_sort_key_ids) => {
             // Update the sort key in the Context & PartitionData.
-            ctx.set_partition_sort_key(new_sort_key.clone(), Some(new_sort_key_ids))
+            ctx.set_partition_sort_key(new_sort_key.clone(), Some(new_sort_key_ids.clone()))
                 .await;
+
+            debug!(
+                %object_store_id,
+                namespace_id = %ctx.namespace_id(),
+                namespace_name = %ctx.namespace_name(),
+                table_id = %ctx.table_id(),
+                table = %ctx.table(),
+                partition_id = %ctx.partition_id(),
+                partition_key = %ctx.partition_key(),
+                ?old_sort_key,
+                %new_sort_key,
+                ?new_sort_key_ids,
+                "adjusted partition sort key"
+            );
         }
         Err(PersistError::ConcurrentSortKeyUpdate(new_sort_key, new_sort_key_ids)) => {
             // Update the cached sort key in the Context (which pushes it
@@ -500,19 +514,6 @@ where
             ));
         }
     }
-
-    debug!(
-        %object_store_id,
-        namespace_id = %ctx.namespace_id(),
-        namespace_name = %ctx.namespace_name(),
-        table_id = %ctx.table_id(),
-        table = %ctx.table(),
-        partition_id = %ctx.partition_id(),
-        partition_key = %ctx.partition_key(),
-        ?old_sort_key,
-        %new_sort_key,
-        "adjusted partition sort key"
-    );
 
     Ok(())
 }
