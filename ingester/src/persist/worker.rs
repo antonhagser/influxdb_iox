@@ -172,7 +172,7 @@ where
     // load sort key
     let sort_key = ctx.sort_key().get_sort_key().await;
     // TODO & verify with Dom: I think since we have added sort_key_ids into the SortKeyState which is a part of the context,
-    // we can get it here and no need to fecth_column_map for it. However, we still beed to fect the columns for different used 
+    // we can get it here and no need to fecth_column_map for it. However, we still beed to fect the columns for different used
     // fetch column map
     // THIS MUST BE DONE AFTER THE SORT KEY IS LOADED
     let (sort_key, columns) = fetch_column_map(ctx, worker_state, sort_key).await?;
@@ -376,11 +376,11 @@ async fn update_catalog_sort_key<O>(
 where
     O: Send + Sync,
 {
-    let old_sort_key = ctx
-        .sort_key()
-        .get_sort_key()
-        .await
-        .map(|v| v.to_columns().map(|v| v.to_string()).collect::<Vec<_>>());
+    let (old_sort_key, old_sort_key_ids) = ctx.sort_key().get().await;
+
+    // convert old_sort_key into a vector of string
+    let old_sort_key =
+        old_sort_key.map(|v| v.to_columns().map(|c| c.to_string()).collect::<Vec<_>>());
 
     debug!(
         %object_store_id,
@@ -398,6 +398,7 @@ where
     let update_result = Backoff::new(&Default::default())
         .retry_with_backoff("cas_sort_key", || {
             let old_sort_key = old_sort_key.clone();
+            let old_sort_key_ids = old_sort_key_ids.clone();
             let new_sort_key_str = new_sort_key.to_columns().collect::<Vec<_>>();
             let new_sort_key_colids = columns.ids_for_names(&new_sort_key_str);
             let catalog = Arc::clone(&worker_state.catalog);
@@ -409,6 +410,7 @@ where
                     .cas_sort_key(
                         ctx.partition_id(),
                         old_sort_key.clone(),
+                        old_sort_key_ids.clone(),
                         &new_sort_key_str,
                         &new_sort_key_colids,
                     )
@@ -435,7 +437,8 @@ where
                             table = %ctx.table(),
                             partition_id = %ctx.partition_id(),
                             partition_key = %ctx.partition_key(),
-                            expected=?old_sort_key,
+                            ?old_sort_key,
+                            ?old_sort_key_ids,
                             ?observed_sort_key,
                             ?observed_sort_key_ids,
                             update_sort_key=?new_sort_key_str,
@@ -463,7 +466,8 @@ where
                             table = %ctx.table(),
                             partition_id = %ctx.partition_id(),
                             partition_key = %ctx.partition_key(),
-                            expected=?old_sort_key,
+                            ?old_sort_key,
+                            ?old_sort_key_ids,
                             ?observed_sort_key,
                             ?observed_sort_key_ids,
                             update_sort_key=?new_sort_key_str,
@@ -498,6 +502,7 @@ where
                 partition_id = %ctx.partition_id(),
                 partition_key = %ctx.partition_key(),
                 ?old_sort_key,
+                ?old_sort_key_ids,
                 %new_sort_key,
                 ?new_sort_key_ids,
                 "adjusted partition sort key"

@@ -417,7 +417,7 @@ pub trait PartitionRepo: Send + Sync {
         partition_id: &TransitionPartitionId,
         old_sort_key: Option<Vec<String>>, // todo: remove this old_sort_key
         old_sort_key_ids: Option<SortedColumnSet>,
-        new_sort_key: &[&str],             //todo: remove this new_sort_key
+        new_sort_key: &[&str], //todo: remove this new_sort_key
         new_sort_key_ids: &SortedColumnSet,
     ) -> Result<Partition, CasFailure<(Vec<String>, Option<SortedColumnSet>)>>;
 
@@ -719,15 +719,40 @@ pub async fn list_schemas(
     Ok(iter)
 }
 
+/// panic if the sort_key and sort_key_ids have different lengths
+// TODO: This function will be removed when sort_key is removed from the partition.
+// We are still in migration process and this function is used to verify the correctness
+// of the migration and discover data corruption asap if any
+pub(crate) fn verify_old_sort_keys(
+    sort_key: &Option<Vec<String>>,
+    sort_key_ids: &Option<SortedColumnSet>,
+) {
+    match (sort_key, sort_key_ids) {
+        (None, None) => {}
+        (Some(sort_key), Some(sort_key_ids)) => {
+            // panic if sort_key and key_ids have different lengths
+            if sort_key.len() != sort_key_ids.len() {
+                panic!(
+                    "sort_key {:?} and sort_key_ids {:?} are not the same length",
+                    sort_key, sort_key_ids
+                );
+            }
+        }
+        _ => panic!(
+            "sort_key {:?} and sort_key_ids {:?} must both be None or Some",
+            sort_key, sort_key_ids
+        ),
+    }
+}
+
 /// panic if sort_key and sort_key_ids have different lengths
 pub(crate) fn verify_sort_key_length(sort_key: &[&str], sort_key_ids: &SortedColumnSet) {
-    assert_eq!(
-        sort_key.len(),
-        sort_key_ids.len(),
-        "sort_key {:?} and sort_key_ids {:?} are not the same length",
-        sort_key,
-        sort_key_ids
-    );
+    if sort_key.len() != sort_key_ids.len() {
+        panic!(
+            "sort_key {:?} and sort_key_ids {:?} are not the same length",
+            sort_key, sort_key_ids
+        );
+    }
 }
 
 #[cfg(test)]
@@ -745,6 +770,63 @@ pub(crate) mod test_helpers {
     use generated_types::influxdata::iox::partition_template::v1 as proto;
     use metric::{Attributes, DurationHistogram, Metric};
     use std::{collections::BTreeSet, ops::DerefMut, sync::Arc, time::Duration};
+
+    // panic: the sort_key and sort_key_ids have different lengths
+    #[test]
+    #[should_panic(
+        expected = "sort_key [\"time\"] and sort_key_ids SortedColumnSet([ColumnId(1), ColumnId(2)]) are not the same length"
+    )]
+    fn test_verify_old_sort_keys_different_length() {
+        let old_sort_key = Some(vec!["time".to_string()]);
+        let old_sort_key_ids = Some(SortedColumnSet::from(vec![1, 2]));
+        verify_old_sort_keys(&old_sort_key, &old_sort_key_ids);
+    }
+
+    // panic: the sort_key is some and sort_key_ids is none
+    #[test]
+    #[should_panic(
+        expected = "sort_key Some([\"time\"]) and sort_key_ids None must both be None or Some"
+    )]
+    fn test_verify_old_sort_keys_some_none() {
+        let old_sort_key = Some(vec!["time".to_string()]);
+        let old_sort_key_ids = None;
+        verify_old_sort_keys(&old_sort_key, &old_sort_key_ids);
+    }
+
+    // panic: the sort_key is none and sort_key_ids is some
+    #[test]
+    #[should_panic(
+        expected = "sort_key None and sort_key_ids Some(SortedColumnSet([ColumnId(1), ColumnId(2)])) must both be None or Some"
+    )]
+    fn test_verify_old_sort_keys_none_some() {
+        let old_sort_key = None;
+        let old_sort_key_ids = Some(SortedColumnSet::from(vec![1, 2]));
+        verify_old_sort_keys(&old_sort_key, &old_sort_key_ids);
+    }
+
+    #[test]
+    fn test_verify_old_sort_keys() {
+        let old_sort_key = Some(vec!["whatever".to_string(), "time".to_string()]);
+        let old_sort_key_ids = Some(SortedColumnSet::from(vec![1, 2]));
+        verify_old_sort_keys(&old_sort_key, &old_sort_key_ids);
+    }
+
+    #[test]
+    fn test_verify_sort_key_length() {
+        let sort_key = vec!["whatever", "time"];
+        let sort_key_ids = SortedColumnSet::from(vec![1, 2]);
+        verify_sort_key_length(&sort_key, &sort_key_ids);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "sort_key [\"whatever\", \"time\"] and sort_key_ids SortedColumnSet([ColumnId(1)]) are not the same length"
+    )]
+    fn test_verify_sort_key_length_different_lens() {
+        let sort_key = vec!["whatever", "time"];
+        let sort_key_ids = SortedColumnSet::from(vec![1]);
+        verify_sort_key_length(&sort_key, &sort_key_ids);
+    }
 
     pub(crate) async fn test_catalog<R, F>(clean_state: R)
     where
@@ -1649,6 +1731,7 @@ pub(crate) mod test_helpers {
             .cas_sort_key(
                 &to_skip_partition.transition_partition_id(),
                 None,
+                None,
                 &["tag2", "tag1", "time"],
                 &SortedColumnSet::from([2, 1, 3]),
             )
@@ -1663,11 +1746,13 @@ pub(crate) mod test_helpers {
         );
 
         // test sort key CAS with an incorrect value
+        // non-existing old_sort_key and old_sort_key_ids
         let err = repos
             .partitions()
             .cas_sort_key(
                 &to_skip_partition.transition_partition_id(),
                 Some(["bananas".to_string()].to_vec()),
+                Some(SortedColumnSet::from([1])),
                 &["tag2", "tag1", "tag3 , with comma", "time"],
                 &SortedColumnSet::from([1, 2, 3, 4]),
             )
@@ -1717,22 +1802,7 @@ pub(crate) mod test_helpers {
             .cas_sort_key(
                 &to_skip_partition.transition_partition_id(),
                 None,
-                &["tag2", "tag1", "tag3 , with comma", "time"],
-                &SortedColumnSet::from([1, 2, 3, 4]),
-            )
-            .await
-            .expect_err("CAS with incorrect value should fail");
-        assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
-            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
-            assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
-        });
-
-        // test sort key CAS with an incorrect value
-        let err = repos
-            .partitions()
-            .cas_sort_key(
-                &to_skip_partition.transition_partition_id(),
-                Some(["bananas".to_string()].to_vec()),
+                None,
                 &["tag2", "tag1", "tag3 , with comma", "time"],
                 &SortedColumnSet::from([1, 2, 3, 4]),
             )
@@ -1754,6 +1824,7 @@ pub(crate) mod test_helpers {
                         .map(ToString::to_string)
                         .collect(),
                 ),
+                Some(SortedColumnSet::from([2, 1, 3])),
                 &["tag2", "tag1", "tag3 , with comma", "time"],
                 &SortedColumnSet::from([2, 1, 4, 3]),
             )

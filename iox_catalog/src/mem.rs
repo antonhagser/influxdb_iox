@@ -1,7 +1,9 @@
 //! This module implements an in-memory implementation of the iox_catalog interface. It can be
 //! used for testing or for an IOx designed to run without catalog persistence.
 
-use crate::interface::{verify_sort_key_length, MAX_PARQUET_FILES_SELECTED_ONCE_FOR_DELETE};
+use crate::interface::{
+    verify_old_sort_keys, verify_sort_key_length, MAX_PARQUET_FILES_SELECTED_ONCE_FOR_DELETE,
+};
 use crate::{
     interface::{
         CasFailure, Catalog, ColumnRepo, ColumnTypeMismatchSnafu, Error, NamespaceRepo,
@@ -666,10 +668,12 @@ impl PartitionRepo for MemTxn {
         new_sort_key: &[&str],
         new_sort_key_ids: &SortedColumnSet,
     ) -> Result<Partition, CasFailure<(Vec<String>, Option<SortedColumnSet>)>> {
+        verify_old_sort_keys(&old_sort_key, &old_sort_key_ids);
         verify_sort_key_length(new_sort_key, new_sort_key_ids);
 
         let stage = self.stage();
         let old_sort_key = old_sort_key.unwrap_or_default();
+        let old_sort_key_ids = old_sort_key_ids.unwrap_or_default();
 
         match stage.partitions.iter_mut().find(|p| match partition_id {
             TransitionPartitionId::Deterministic(hash_id) => {
@@ -677,7 +681,7 @@ impl PartitionRepo for MemTxn {
             }
             TransitionPartitionId::Deprecated(id) => p.id == *id,
         }) {
-            Some(p) if p.sort_key == old_sort_key &&  p.sort_key_ids == old_sort_key_ids => {
+            Some(p) if p.sort_key == old_sort_key && p.sort_key_ids == Some(old_sort_key_ids) => {
                 p.sort_key = new_sort_key.iter().map(|s| s.to_string()).collect();
                 p.sort_key_ids = Some(new_sort_key_ids.clone());
                 Ok(p.clone())
