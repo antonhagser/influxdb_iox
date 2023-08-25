@@ -171,6 +171,8 @@ where
 {
     // load sort key
     let sort_key = ctx.sort_key().get_sort_key().await;
+    // TODO & verify with Dom: I think since we have added sort_key_ids into the SortKeyState which is a part of the context,
+    // we can get it here and no need to fecth_column_map for it. However, we still beed to fect the columns for different used 
     // fetch column map
     // THIS MUST BE DONE AFTER THE SORT KEY IS LOADED
     let (sort_key, columns) = fetch_column_map(ctx, worker_state, sort_key).await?;

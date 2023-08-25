@@ -86,6 +86,7 @@ impl PartitionProvider for CatalogPartitionResolver {
             namespace_name,
             table_id,
             table,
+            // todo: build sort_key from sort_key_ids
             SortKeyState::Provided(p.sort_key(), p.sort_key_ids_none_if_empty()),
         )))
     }

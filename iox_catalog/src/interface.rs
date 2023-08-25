@@ -415,8 +415,9 @@ pub trait PartitionRepo: Send + Sync {
     async fn cas_sort_key(
         &mut self,
         partition_id: &TransitionPartitionId,
-        old_sort_key: Option<Vec<String>>,
-        new_sort_key: &[&str],
+        old_sort_key: Option<Vec<String>>, // todo: remove this old_sort_key
+        old_sort_key_ids: Option<SortedColumnSet>,
+        new_sort_key: &[&str],             //todo: remove this new_sort_key
         new_sort_key_ids: &SortedColumnSet,
     ) -> Result<Partition, CasFailure<(Vec<String>, Option<SortedColumnSet>)>>;
 

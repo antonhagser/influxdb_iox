@@ -662,6 +662,7 @@ impl PartitionRepo for MemTxn {
         &mut self,
         partition_id: &TransitionPartitionId,
         old_sort_key: Option<Vec<String>>,
+        old_sort_key_ids: Option<SortedColumnSet>,
         new_sort_key: &[&str],
         new_sort_key_ids: &SortedColumnSet,
     ) -> Result<Partition, CasFailure<(Vec<String>, Option<SortedColumnSet>)>> {
@@ -676,7 +677,7 @@ impl PartitionRepo for MemTxn {
             }
             TransitionPartitionId::Deprecated(id) => p.id == *id,
         }) {
-            Some(p) if p.sort_key == old_sort_key => {
+            Some(p) if p.sort_key == old_sort_key &&  p.sort_key_ids == old_sort_key_ids => {
                 p.sort_key = new_sort_key.iter().map(|s| s.to_string()).collect();
                 p.sort_key_ids = Some(new_sort_key_ids.clone());
                 Ok(p.clone())
