@@ -16,11 +16,12 @@
 // Workaround for "unused crate" lint false positives.
 use workspace_hack as _;
 
-use std::{ops::DerefMut, sync::Arc};
+use std::{collections::BTreeMap, ops::DerefMut, sync::Arc};
 
 use generated_types::influxdata::iox::schema::v1::*;
 use iox_catalog::interface::{
-    get_schema_by_name, get_schema_by_namespace_and_table, Catalog, SoftDeletedRows,
+    get_schema_by_name, get_schema_by_namespace_and_table, upsert_schema_by_namespace_and_table,
+    Catalog, SoftDeletedRows, UpsertSchemaError,
 };
 use observability_deps::tracing::warn;
 use tonic::{Request, Response, Status};
@@ -77,6 +78,59 @@ impl schema_service_server::SchemaService for SchemaService {
             schema: Some(schema_to_proto(schema)),
         }))
     }
+
+    async fn upsert_schema(
+        &self,
+        request: Request<UpsertSchemaRequest>,
+    ) -> Result<Response<UpsertSchemaResponse>, Status> {
+        let mut repos = self.catalog.repositories().await;
+        let req = request.into_inner();
+
+        let columns = req
+            .columns
+            .into_iter()
+            .map(|(name, column_type)| {
+                let column_type: data_types::ColumnType =
+                    column_schema::ColumnType::from_i32(column_type)
+                        .ok_or_else(|| {
+                            Status::invalid_argument(format!(
+                                "Column type {} is not a valid ColumnType",
+                                column_type
+                            ))
+                        })?
+                        .try_into()
+                        .map_err(|e| {
+                            Status::internal(format!(
+                                "Could not convert protobuf into a ColumnType: {e}"
+                            ))
+                        })?;
+
+                Ok((name, column_type))
+            })
+            .collect::<Result<BTreeMap<_, _>, Status>>()?;
+
+        let schema = upsert_schema_by_namespace_and_table(
+            &req.namespace,
+            &req.table,
+            columns,
+            repos.deref_mut(),
+            SoftDeletedRows::ExcludeDeleted,
+        )
+        .await
+        .map_err(|e| match e {
+            UpsertSchemaError::NamespaceNotFound { .. } => Status::not_found(e.to_string()),
+            UpsertSchemaError::ColumnTypeConflict { .. } => Status::invalid_argument(e.to_string()),
+            UpsertSchemaError::TableLimit { .. } | UpsertSchemaError::ColumnLimit { .. } => {
+                Status::failed_precondition(e.to_string())
+            }
+            _ => Status::internal(e.to_string()),
+        })
+        .map(Arc::new)?;
+
+        Ok(Response::new(UpsertSchemaResponse {
+            schema: Some(schema_to_proto(schema)),
+        }))
+    }
 }
 
 fn schema_to_proto(schema: Arc<data_types::NamespaceSchema>) -> NamespaceSchema {
@@ -113,7 +167,7 @@ fn schema_to_proto(schema: Arc<data_types::NamespaceSchema>) -> NamespaceSchema 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use data_types::ColumnType;
+    use data_types::{ColumnType, MaxColumnsPerTable, MaxTables};
     use generated_types::influxdata::iox::schema::v1::schema_service_server::SchemaService;
     use iox_catalog::{
         mem::MemCatalog,
@@ -208,5 +262,446 @@ mod tests {
         let tonic_status = grpc.get_schema(Request::new(request)).await.unwrap_err();
         assert_eq!(tonic_status.code(), Code::NotFound);
         assert_eq!(tonic_status.message(), "table does_not_exist not found");
+    }
+
+    mod upsert_schema {
+        use super::*;
+
+        #[tokio::test]
+        async fn nonexistent_namespace_fails() {
+            let catalog = Arc::new(MemCatalog::new(Default::default()));
+
+            // create grpc schema service
+            let grpc = super::super::SchemaService::new(catalog);
+
+            // attempt to upsert into a nonexistent namespace, which fails
+            let request = UpsertSchemaRequest {
+                namespace: "namespace_does_not_exist".to_string(),
+                table: "arbitrary".to_string(),
+                columns: [("temperature".to_string(), ColumnType::I64 as i32)].into(),
+            };
+            let tonic_status = grpc.upsert_schema(Request::new(request)).await.unwrap_err();
+            assert_eq!(tonic_status.code(), Code::NotFound);
+            assert_eq!(
+                tonic_status.message(),
+                "Namespace `namespace_does_not_exist` not found"
+            );
+        }
+
+        #[tokio::test]
+        async fn new_table() {
+            let namespace = "namespace_schema_upsert_new";
+            let table = "table_schema_upsert_new";
+            let columns: BTreeMap<_, _> =
+                [("temperature".to_string(), ColumnType::I64 as i32)].into();
+
+            // create a catalog and populate it with some test data, then drop the write lock
+            let catalog = {
+                let metrics = Arc::new(metric::Registry::default());
+                let catalog = Arc::new(MemCatalog::new(metrics));
+                let mut repos = catalog.repositories().await;
+                arbitrary_namespace(&mut *repos, namespace).await;
+                catalog
+            };
+
+            let grpc = super::super::SchemaService::new(catalog);
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: columns.clone(),
+            };
+            let tonic_response = grpc.upsert_schema(Request::new(request)).await.unwrap();
+            let response = tonic_response.into_inner();
+            let schema = response.schema.unwrap();
+
+            let mut table_names: Vec<_> = schema.tables.keys().collect();
+            table_names.sort();
+            assert_eq!(table_names, [table]);
+
+            let mut column_names: Vec<_> =
+                schema.tables.get(table).unwrap().columns.keys().collect();
+            column_names.sort();
+            assert_eq!(column_names, ["temperature", "time"]);
+        }
+
+        #[tokio::test]
+        async fn new_table_no_columns() {
+            let namespace = "namespace_schema_upsert_no_columns";
+            let table = "table_schema_upsert_no_columns";
+            let columns = BTreeMap::default();
+
+            // create a catalog and populate it with some test data, then drop the write lock
+            let catalog = {
+                let metrics = Arc::new(metric::Registry::default());
+                let catalog = Arc::new(MemCatalog::new(metrics));
+                let mut repos = catalog.repositories().await;
+                arbitrary_namespace(&mut *repos, namespace).await;
+                catalog
+            };
+
+            let grpc = super::super::SchemaService::new(catalog);
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: columns.clone(),
+            };
+            let tonic_response = grpc.upsert_schema(Request::new(request)).await.unwrap();
+            let response = tonic_response.into_inner();
+            let schema = response.schema.unwrap();
+
+            let mut table_names: Vec<_> = schema.tables.keys().collect();
+            table_names.sort();
+            assert_eq!(table_names, [table]);
+
+            let column_names: Vec<_> = schema.tables.get(table).unwrap().columns.keys().collect();
+            // The time column always gets created
+            assert_eq!(column_names, ["time"]);
+        }
+
+        #[tokio::test]
+        async fn existing_table() {
+            let namespace = "namespace_schema_upsert_existing";
+            let table = "table_schema_upsert_existing";
+
+            let existing_columns: BTreeMap<_, _> = [
+                ("name".to_string(), ColumnType::String),
+                ("time".to_string(), ColumnType::Time),
+            ]
+            .into();
+
+            let upsert_columns: BTreeMap<_, _> = [
+                // One new column
+                ("region".to_string(), ColumnType::Tag as i32),
+                // One existing column
+                ("name".to_string(), ColumnType::String as i32),
+                // no time column, but that always gets created
+            ]
+            .into();
+
+            // create a catalog and populate it with some test data, then drop the write lock
+            let catalog = {
+                let metrics = Arc::new(metric::Registry::default());
+                let catalog = Arc::new(MemCatalog::new(metrics));
+                let mut repos = catalog.repositories().await;
+                let namespace = arbitrary_namespace(&mut *repos, namespace).await;
+
+                let table = arbitrary_table(&mut *repos, table, &namespace).await;
+                for (existing_name, existing_type) in existing_columns {
+                    repos
+                        .columns()
+                        .create_or_get(&existing_name, table.id, existing_type)
+                        .await
+                        .unwrap();
+                }
+                catalog
+            };
+
+            // create grpc schema service
+            let grpc = super::super::SchemaService::new(catalog);
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: upsert_columns.clone(),
+            };
+            let tonic_response = grpc.upsert_schema(Request::new(request)).await.unwrap();
+            let response = tonic_response.into_inner();
+            let schema = response.schema.unwrap();
+
+            let mut table_names: Vec<_> = schema.tables.keys().collect();
+            table_names.sort();
+            assert_eq!(table_names, [table]);
+
+            let mut column_names: Vec<_> =
+                schema.tables.get(table).unwrap().columns.keys().collect();
+            column_names.sort();
+            assert_eq!(column_names, ["name", "region", "time"]);
+        }
+
+        #[tokio::test]
+        async fn conflicting_column_types_fails() {
+            let namespace = "namespace_schema_upsert_conflict";
+            let table = "table_schema_upsert_conflict";
+
+            let existing_columns: BTreeMap<_, _> = [
+                ("name".to_string(), ColumnType::String),
+                ("time".to_string(), ColumnType::Time),
+            ]
+            .into();
+
+            let upsert_columns: BTreeMap<_, _> = [
+                // New column
+                ("cpu".to_string(), ColumnType::Tag as i32),
+                // Same name as an existing column but a different type
+                ("name".to_string(), ColumnType::I64 as i32),
+                // Another new column
+                ("temperature".to_string(), ColumnType::F64 as i32),
+            ]
+            .into();
+
+            // create a catalog and populate it with some test data, then drop the write lock
+            let catalog = {
+                let metrics = Arc::new(metric::Registry::default());
+                let catalog = Arc::new(MemCatalog::new(metrics));
+                let mut repos = catalog.repositories().await;
+                let namespace = arbitrary_namespace(&mut *repos, namespace).await;
+
+                let table = arbitrary_table(&mut *repos, table, &namespace).await;
+                for (existing_name, existing_type) in &existing_columns {
+                    repos
+                        .columns()
+                        .create_or_get(existing_name, table.id, *existing_type)
+                        .await
+                        .unwrap();
+                }
+                catalog
+            };
+
+            // create grpc schema service
+            let grpc = super::super::SchemaService::new(catalog);
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: upsert_columns.clone(),
+            };
+
+            let tonic_status = grpc.upsert_schema(Request::new(request)).await.unwrap_err();
+            assert_eq!(tonic_status.code(), Code::InvalidArgument);
+            assert_eq!(
+                tonic_status.message(),
+                "Tried to upsert column `name` with type i64, \
+                but the column is already type string"
+            );
+
+            let request = GetSchemaRequest {
+                namespace: namespace.to_string(),
+                table: Some(table.to_string()),
+            };
+            let tonic_response = grpc.get_schema(Request::new(request)).await.unwrap();
+            let response = tonic_response.into_inner();
+            let schema = response.schema.unwrap();
+
+            let table_names: Vec<_> = schema.tables.keys().collect();
+            assert_eq!(table_names, [table]);
+
+            let mut schema_columns: Vec<_> =
+                schema.tables.get(table).unwrap().columns.keys().collect();
+            schema_columns.sort();
+            // No new columns should be added
+            let mut expected_columns: Vec<_> = existing_columns.keys().collect();
+            expected_columns.sort();
+            assert_eq!(schema_columns, expected_columns);
+        }
+
+        #[tokio::test]
+        async fn multiple_conflicting_column_types_returns_error_on_first_encountered() {
+            let namespace = "namespace_schema_upsert_two_conflicts";
+            let table = "table_schema_upsert_two_conflicts";
+
+            let existing_columns: BTreeMap<_, _> = [
+                ("name".to_string(), ColumnType::String),
+                ("cpu".to_string(), ColumnType::String),
+                ("time".to_string(), ColumnType::Time),
+            ]
+            .into();
+
+            let upsert_columns: BTreeMap<_, _> = [
+                // Same name as an existing column but a different type
+                ("cpu".to_string(), ColumnType::Tag as i32),
+                // Another column with the same name as an existing column but a different type
+                ("name".to_string(), ColumnType::I64 as i32),
+                // A new column
+                ("temperature".to_string(), ColumnType::F64 as i32),
+            ]
+            .into();
+
+            // create a catalog and populate it with some test data, then drop the write lock
+            let catalog = {
+                let metrics = Arc::new(metric::Registry::default());
+                let catalog = Arc::new(MemCatalog::new(metrics));
+                let mut repos = catalog.repositories().await;
+                let namespace = arbitrary_namespace(&mut *repos, namespace).await;
+
+                let table = arbitrary_table(&mut *repos, table, &namespace).await;
+                for (existing_name, existing_type) in &existing_columns {
+                    repos
+                        .columns()
+                        .create_or_get(existing_name, table.id, *existing_type)
+                        .await
+                        .unwrap();
+                }
+                catalog
+            };
+
+            // create grpc schema service
+            let grpc = super::super::SchemaService::new(catalog);
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: upsert_columns.clone(),
+            };
+
+            let tonic_status = grpc.upsert_schema(Request::new(request)).await.unwrap_err();
+            assert_eq!(tonic_status.code(), Code::InvalidArgument);
+            assert_eq!(
+                tonic_status.message(),
+                "Tried to upsert column `cpu` with type tag, but the column is already type string"
+            );
+
+            let request = GetSchemaRequest {
+                namespace: namespace.to_string(),
+                table: Some(table.to_string()),
+            };
+            let tonic_response = grpc.get_schema(Request::new(request)).await.unwrap();
+            let response = tonic_response.into_inner();
+            let schema = response.schema.unwrap();
+
+            let mut table_names: Vec<_> = schema.tables.keys().collect();
+            table_names.sort();
+            assert_eq!(table_names, [table]);
+
+            let mut schema_columns: Vec<_> =
+                schema.tables.get(table).unwrap().columns.keys().collect();
+            schema_columns.sort();
+            // No new columns should be added
+            let mut expected_columns: Vec<_> = existing_columns.keys().collect();
+            expected_columns.sort();
+            assert_eq!(schema_columns, expected_columns);
+        }
+
+        #[tokio::test]
+        async fn over_max_tables_fails() {
+            let namespace = "namespace_schema_too_many_tables";
+            let existing_table = "schema_test_table_existing";
+            let upsert_table = "schema_test_table_upsert";
+
+            // create a catalog and populate it with some test data, then drop the write lock
+            let catalog = {
+                let metrics = Arc::new(metric::Registry::default());
+                let catalog = Arc::new(MemCatalog::new(metrics));
+                let mut repos = catalog.repositories().await;
+                let namespace_in_catalog = arbitrary_namespace(&mut *repos, namespace).await;
+
+                // Set the max tables to 1
+                repos
+                    .namespaces()
+                    .update_table_limit(namespace, MaxTables::new(1))
+                    .await
+                    .unwrap();
+                // Create the 1 allowed table
+                arbitrary_table(&mut *repos, existing_table, &namespace_in_catalog).await;
+                catalog
+            };
+
+            let grpc = super::super::SchemaService::new(catalog);
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: upsert_table.to_string(),
+                columns: Default::default(),
+            };
+
+            let tonic_status = grpc.upsert_schema(Request::new(request)).await.unwrap_err();
+            assert_eq!(
+                tonic_status.message(),
+                "Table limit reached on namespace `namespace_schema_too_many_tables`; \
+                could not upsert table `schema_test_table_upsert`"
+            );
+            assert_eq!(tonic_status.code(), Code::FailedPrecondition);
+
+            let request = GetSchemaRequest {
+                namespace: namespace.to_string(),
+                table: None,
+            };
+            let tonic_response = grpc.get_schema(Request::new(request)).await.unwrap();
+            let response = tonic_response.into_inner();
+            let schema = response.schema.unwrap();
+
+            let table_names: Vec<_> = schema.tables.keys().collect();
+            // Table doesn't get created
+            assert_eq!(table_names, [existing_table]);
+        }
+
+        #[tokio::test]
+        async fn over_max_columns_fails() {
+            let namespace = "namespace_schema_too_many_columns";
+            let table = "schema_test_table_existing";
+
+            let existing_columns: BTreeMap<_, _> = [("cpu".to_string(), ColumnType::String)].into();
+
+            let upsert_columns: BTreeMap<_, _> = [
+                // One existing column
+                ("cpu".to_string(), ColumnType::String as i32),
+                // One new column that would put the table over the limit
+                ("name".to_string(), ColumnType::I64 as i32),
+            ]
+            .into();
+
+            // create a catalog and populate it with some test data, then drop the write lock
+            let catalog = {
+                let metrics = Arc::new(metric::Registry::default());
+                let catalog = Arc::new(MemCatalog::new(metrics));
+                let mut repos = catalog.repositories().await;
+                let namespace_in_catalog = arbitrary_namespace(&mut *repos, namespace).await;
+
+                // Set the max columns to 2
+                repos
+                    .namespaces()
+                    .update_column_limit(namespace, MaxColumnsPerTable::new(2))
+                    .await
+                    .unwrap();
+                let table = arbitrary_table(&mut *repos, table, &namespace_in_catalog).await;
+
+                // Create the 1 allowed column (plus the always-existing `time` column puts this
+                // table at the limit)
+                for (existing_name, existing_type) in &existing_columns {
+                    repos
+                        .columns()
+                        .create_or_get(existing_name, table.id, *existing_type)
+                        .await
+                        .unwrap();
+                }
+
+                catalog
+            };
+
+            let grpc = super::super::SchemaService::new(catalog);
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: upsert_columns.clone(),
+            };
+
+            let tonic_status = grpc.upsert_schema(Request::new(request)).await.unwrap_err();
+            assert_eq!(
+                tonic_status.message(),
+                "Could not create columns in namespace `namespace_schema_too_many_columns`, \
+                table `schema_test_table_existing`; table contains 2 existing columns, \
+                applying this upsert would result in 3 columns, limit is 2"
+            );
+            assert_eq!(tonic_status.code(), Code::FailedPrecondition);
+
+            let request = GetSchemaRequest {
+                namespace: namespace.to_string(),
+                table: None,
+            };
+            let tonic_response = grpc.get_schema(Request::new(request)).await.unwrap();
+            let response = tonic_response.into_inner();
+            let schema = response.schema.unwrap();
+
+            let table_names: Vec<_> = schema.tables.keys().collect();
+            assert_eq!(table_names, [table]);
+
+            let mut schema_columns: Vec<_> =
+                schema.tables.get(table).unwrap().columns.keys().collect();
+            schema_columns.sort();
+            // No new columns should be added
+            assert_eq!(schema_columns, ["cpu", "time"]);
+        }
     }
 }

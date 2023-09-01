@@ -10,9 +10,9 @@ use data_types::{
     TransitionPartitionId,
 };
 use iox_time::TimeProvider;
-use snafu::{OptionExt, Snafu};
+use snafu::{OptionExt, ResultExt, Snafu};
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt::{Debug, Display},
     sync::Arc,
 };
@@ -636,6 +636,212 @@ where
     let columns = repos.columns().list_by_table_id(table.id).await?;
     for c in columns {
         table_schema.add_column(c);
+    }
+
+    let mut namespace = NamespaceSchema::new_empty_from(&namespace);
+    namespace
+        .tables
+        .insert(table_name.to_string(), table_schema);
+
+    Ok(namespace)
+}
+
+#[derive(Debug, Snafu)]
+#[allow(missing_copy_implementations, missing_docs)]
+#[snafu(visibility(pub(crate)))]
+pub enum UpsertSchemaError {
+    #[snafu(display("Could not get namespace `{name}`: {source}"))]
+    GetNamespace { name: String, source: Error },
+
+    #[snafu(display("Namespace `{name}` not found"))]
+    NamespaceNotFound { name: String },
+
+    #[snafu(display("Could not create table `{table}` in namespace `{namespace}`: {source}"))]
+    TableLoadOrCreate {
+        table: String,
+        namespace: String,
+        source: Error,
+    },
+
+    #[snafu(display(
+        "Tried to upsert column `{name}` with type {new}, \
+        but the column is already type {existing}",
+    ))]
+    ColumnTypeConflict {
+        name: String,
+        existing: ColumnType,
+        new: ColumnType,
+    },
+
+    #[snafu(display(
+        "Could not get columns for table `{table}` in namespace `{namespace}`: {source}"
+    ))]
+    GetColumns {
+        table: String,
+        namespace: String,
+        source: Error,
+    },
+
+    #[snafu(display(
+        "Could not upsert columns for table `{table}` in namespace `{namespace}`: {source}"
+    ))]
+    UpsertColumns {
+        table: String,
+        namespace: String,
+        source: Error,
+    },
+
+    #[snafu(display(
+        "Could not create columns in namespace `{namespace}`, table `{table}`; \
+        table contains {existing_column_count} existing columns, \
+        applying this upsert would result in {merged_column_count} columns, \
+        limit is {max_columns_per_table}"
+    ))]
+    ColumnLimit {
+        table: String,
+        namespace: String,
+        /// Number of columns already in the table.
+        existing_column_count: usize,
+        /// Number of resultant columns after merging the write with existing
+        /// columns.
+        merged_column_count: usize,
+        /// The configured limit.
+        max_columns_per_table: usize,
+    },
+
+    #[snafu(display(
+        "Table limit reached on namespace `{namespace}`; \
+        could not upsert table `{table}`"
+    ))]
+    TableLimit { table: String, namespace: String },
+}
+
+/// Upserts the schema for one particular table in a namespace.
+pub async fn upsert_schema_by_namespace_and_table<R>(
+    name: &str,
+    table_name: &str,
+    // This is a `BTreeMap` to get a consistent ordering and consistent failures if multiple
+    // columns have problems.
+    upsert_columns: BTreeMap<String, ColumnType>,
+    repos: &mut R,
+    deleted: SoftDeletedRows,
+) -> Result<NamespaceSchema, UpsertSchemaError>
+where
+    R: RepoCollection + ?Sized,
+{
+    let namespace = repos
+        .namespaces()
+        .get_by_name(name, deleted)
+        .await
+        .context(GetNamespaceSnafu { name })?
+        .context(NamespaceNotFoundSnafu { name })?;
+
+    let mut table_schema = crate::table_load_or_create(
+        repos,
+        namespace.id,
+        &namespace.partition_template,
+        table_name,
+    )
+    .await
+    .map_err(|e| match e {
+        Error::TableCreateLimitError { .. } => UpsertSchemaError::TableLimit {
+            table: table_name.to_string(),
+            namespace: name.to_string(),
+        },
+        _ => UpsertSchemaError::TableLoadOrCreate {
+            table: table_name.to_string(),
+            namespace: name.to_string(),
+            source: e,
+        },
+    })?;
+
+    // table_load_or_create always adds the time column, which we'll fetch again here, so reset
+    // the table schema's columns to avoid adding the time column twice.
+    let existing_columns = get_table_columns_by_id(table_schema.id, repos)
+        .await
+        .context(GetColumnsSnafu {
+            table: table_name,
+            namespace: name,
+        })?;
+    table_schema.columns = existing_columns.clone();
+
+    // Check column limits for this table.
+    let mut column_name_set: BTreeSet<_> = existing_columns.names();
+
+    // The union of existing columns and new columns in this upsert must be
+    // calculated to derive the total distinct column count for this table
+    // after this upsert is applied.
+    let existing_column_count = column_name_set.len();
+
+    let mut upsert_column_name_set: BTreeSet<_> =
+        upsert_columns.keys().map(|s| s.as_str()).collect();
+
+    let merged_column_count = {
+        column_name_set.append(&mut upsert_column_name_set);
+        column_name_set.len()
+    };
+
+    // If the table is currently over the column limit but this upsert only
+    // includes existing columns and doesn't exceed the limit more, this is
+    // allowed.
+    let max_columns_per_table = namespace.max_columns_per_table.get() as usize;
+    let columns_were_added_in_this_batch = merged_column_count > existing_column_count;
+    let column_limit_exceeded = merged_column_count > max_columns_per_table;
+
+    if columns_were_added_in_this_batch && column_limit_exceeded {
+        return Err(UpsertSchemaError::ColumnLimit {
+            table: table_name.to_string(),
+            namespace: name.to_string(),
+            merged_column_count,
+            existing_column_count,
+            max_columns_per_table,
+        });
+    }
+
+    let mut columns_to_insert: HashMap<&str, ColumnType> = HashMap::new();
+
+    for (upsert_column_name, upsert_column_type) in &upsert_columns {
+        match existing_columns.get(upsert_column_name) {
+            Some(existing_column_schema)
+                if &existing_column_schema.column_type == upsert_column_type =>
+            {
+                // No action is needed as the column matches the existing column schema.
+            }
+            Some(existing_column_schema) => {
+                // The column schema, and the column in the mutable batch are of
+                // different types.
+                return ColumnTypeConflictSnafu {
+                    name: upsert_column_name,
+                    existing: existing_column_schema.column_type,
+                    new: *upsert_column_type,
+                }
+                .fail();
+            }
+            None => {
+                // The column does not exist in the catalog; add it to the list of columns to be
+                // bulk inserted later.
+                let old = columns_to_insert.insert(upsert_column_name, *upsert_column_type);
+                // The `upsert_columns` came in as a `HashMap` by column name, so it should be
+                // impossible to be inserting to `columns_to_insert` with the same column name
+                assert!(
+                    old.is_none(),
+                    "duplicate column name `{upsert_column_name}` in columns shouldn't be possible"
+                );
+            }
+        }
+    }
+
+    if !columns_to_insert.is_empty() {
+        repos
+            .columns()
+            .create_or_get_many_unchecked(table_schema.id, columns_to_insert)
+            .await
+            .context(UpsertColumnsSnafu {
+                table: table_name,
+                namespace: name,
+            })?
+            .into_iter()
+            .for_each(|c| table_schema.add_column(c));
     }
 
     let mut namespace = NamespaceSchema::new_empty_from(&namespace);
