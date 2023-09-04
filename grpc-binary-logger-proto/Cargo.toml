@@ -6,11 +6,11 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-prost = "0.11"
-prost-types = { version = "0.11.9", features = ["std"] }
+prost = "0.12"
+prost-types = { version = "0.12.0", features = ["std"] }
 tonic = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [build-dependencies]
-prost-build = "0.11"
+prost-build = "0.12"
 tonic-build = { workspace = true }
