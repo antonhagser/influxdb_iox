@@ -18,7 +18,7 @@ iox_time = { path = "../iox_time" }
 object_store = { workspace = true }
 observability_deps = { path = "../observability_deps" }
 parquet = { workspace = true, features = ["experimental"]}
-pbjson-types = "0.5"
+pbjson-types = { git = "https://github.com/influxdata/pbjson", branch = "savage/prost012" }
 prost = "0.12"
 schema = { path = "../schema" }
 snafu = "0.7"

@@ -13,7 +13,7 @@ data_types = { path = "../data_types" }
 datafusion = { workspace = true }
 datafusion-proto = { workspace = true }
 flatbuffers = "23.5.26"
-pbjson = "0.5"
+pbjson = { git = "https://github.com/influxdata/pbjson", branch = "savage/prost012" }
 predicate = { path = "../predicate" }
 prost = "0.12"
 query_functions = { path = "../query_functions" }
@@ -25,4 +25,4 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [build-dependencies] # In alphabetical order
 tonic-build = { workspace = true }
 prost-build = "0.12"
-pbjson-build = "0.5"
+pbjson-build = { git = "https://github.com/influxdata/pbjson", branch = "savage/prost012" }

@@ -4072,8 +4072,7 @@ checksum = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
 [[package]]
 name = "pbjson"
 version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "048f9ac93c1eab514f9470c4bc8d97ca2a0a236b84f45cc19d69a59fc11467f6"
+source = "git+https://github.com/influxdata/pbjson?branch=savage/prost012#d54b2c6e09f4522b1181ab7ba06c7481a769e950"
 dependencies = [
  "base64 0.13.1",
  "serde",
@@ -4082,27 +4081,25 @@ dependencies = [
 [[package]]
 name = "pbjson-build"
 version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdbb7b706f2afc610f3853550cdbbf6372fd324824a087806bd4480ea4996e24"
+source = "git+https://github.com/influxdata/pbjson?branch=savage/prost012#d54b2c6e09f4522b1181ab7ba06c7481a769e950"
 dependencies = [
  "heck",
  "itertools 0.10.5",
- "prost 0.11.9",
- "prost-types 0.11.9",
+ "prost 0.12.0",
+ "prost-types 0.12.0",
 ]
 
 [[package]]
 name = "pbjson-types"
 version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a88c8d87f99a4ac14325e7a4c24af190fca261956e3b82dd7ed67e77e6c7043"
+source = "git+https://github.com/influxdata/pbjson?branch=savage/prost012#d54b2c6e09f4522b1181ab7ba06c7481a769e950"
 dependencies = [
  "bytes",
  "chrono",
  "pbjson",
  "pbjson-build",
- "prost 0.11.9",
- "prost-build 0.11.9",
+ "prost 0.12.0",
+ "prost-build 0.12.0",
  "serde",
 ]
 
