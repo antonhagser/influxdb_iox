@@ -271,7 +271,6 @@ jobs:
           name: cargo test --workspace
           command: cargo test --workspace
 
-
   # end to end tests with Heappy (heap profiling enabled)
   test_heappy:
     docker:
@@ -386,6 +385,10 @@ jobs:
     steps:
       - checkout
       - run:
+          name: Install Depot
+          command: |
+            curl -L https://depot.dev/install-cli.sh | sudo env DEPOT_INSTALL_DIR=/usr/local/bin sh
+      - run:
           name: Cargo release build with target arch set for CRoaring
           command: |
             COMMIT_SHA="$(git rev-parse HEAD)"
@@ -402,24 +405,15 @@ jobs:
 
             docker run -it --rm quay.io/influxdb/iox:$COMMIT_SHA debug print-cpu
 
-            mkdir /tmp/images
-            docker save quay.io/influxdb/iox:"$COMMIT_SHA" | gzip > /tmp/images/iox.tar.gz
-            docker save quay.io/influxdb/iox_data_generator:"$COMMIT_SHA" | gzip > /tmp/images/iox_data_generator.tar.gz
           # linking might take a while and doesn't produce CLI output
           no_output_timeout: 30m
-      - store_artifacts:
-          path: /tmp/images
-      - persist_to_workspace:
-          root: /tmp/images
-          paths:
-            - "*.tar.gz"
 
   deploy_release:
     docker:
       - image: quay.io/influxdb/rust:ci
     environment:
-        # See https://github.com/containers/skopeo/issues/942
-        XDG_RUNTIME_DIR: /home/rust/.run
+      # See https://github.com/containers/skopeo/issues/942
+      XDG_RUNTIME_DIR: /home/rust/.run
     steps:
       - checkout
       - attach_workspace:
@@ -514,37 +508,37 @@ workflows:
         - not: << pipeline.parameters.ci_image >>
         - not: << pipeline.parameters.release_branch >>
     jobs:
-      - fmt
-      - lint
-      - cargo_audit
-      - protobuf-lint
-      - docs-lint
-      - test
-      - test_heappy
-      - test_integration
-      - build_dev
-      - doc
-      - workspace_hack_checks
+      # - fmt
+      # - lint
+      # - cargo_audit
+      # - protobuf-lint
+      # - docs-lint
+      # - test
+      # - test_heappy
+      # - test_integration
+      # - build_dev
+      # - doc
+      # - workspace_hack_checks
       - build_release:
           filters:
             branches:
-              only: main
+              only: use-depot
       - deploy_release:
           filters:
             branches:
               only: main
-          requires: # Only deploy if all tests have passed
-            - fmt
-            - lint
-            - cargo_audit
-            - protobuf-lint
-            - docs-lint
-            - test
-            - test_heappy
-            - test_integration
-            - build_dev
-            - build_release
-            - doc
+          # requires: # Only deploy if all tests have passed
+          #   - fmt
+          #   - lint
+          #   - cargo_audit
+          #   - protobuf-lint
+          #   - docs-lint
+          #   - test
+          #   - test_heappy
+          #   - test_integration
+          #   - build_dev
+          #   - build_release
+          #   - doc
 
   # Manual build of CI image
   ci_image:

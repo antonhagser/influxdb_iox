@@ -12,7 +12,7 @@ COMMIT_TS="$(env TZ=UTC0 git show --quiet --date='format-local:%Y-%m-%dT%H:%M:%S
 NOW="$(date --utc --iso-8601=seconds)"
 REPO_URL="https://github.com/influxdata/influxdb_iox"
 
-exec docker buildx build \
+exec depot build --project vdmwp4qbnr \
   --build-arg CARGO_INCREMENTAL="no" \
   --build-arg CARGO_NET_GIT_FETCH_WITH_CLI="true" \
   --build-arg FEATURES="$FEATURES" \
@@ -28,4 +28,6 @@ exec docker buildx build \
   --label com.influxdata.image.package="$PACKAGE" \
   --progress plain \
   --tag "$TAG" \
+  --load \
+  --platform linux/amd64,linux/arm64 \
   .
