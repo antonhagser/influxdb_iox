@@ -13,7 +13,7 @@ mod worker;
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, sync::Arc, time::Duration};
+    use std::{sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
     use data_types::{CompactionLevel, ParquetFile, SortedColumnSet};
@@ -203,6 +203,15 @@ mod tests {
             .mark_persisting()
             .expect("partition with write should transition to persisting");
 
+        // get columns from the catalog
+        let columns = catalog
+            .repositories()
+            .await
+            .columns()
+            .list_by_table_id(table_id)
+            .await
+            .expect("query for columns failed");
+
         // Assert the starting metric values.
         assert_metric_histogram(&metrics, "ingester_persist_active_duration", 0);
         assert_metric_histogram(&metrics, "ingester_persist_enqueue_duration", 0);
@@ -240,8 +249,18 @@ mod tests {
         assert_matches!(partition.lock().sort_key(), SortKeyState::Provided(Some(sort_key), Some(sort_key_ids)) => {
             let sort_key_columns = sort_key.to_columns().collect::<Vec<_>>();
             assert_eq!(sort_key_columns, &["region", "time"]);
-            // Ensure IDs are unique per column name and still has the same length
-            assert_eq!(sort_key_ids.iter().collect::<HashSet<_>>().len(), sort_key_columns.len());
+            // get column ids of column name "region" and "time"
+            let region_column_id = columns
+                .iter()
+                .find(|c| c.name == "region")
+                .expect("column region not found")
+                .id;
+            let time_column_id = columns
+                .iter()
+                .find(|c| c.name == "time")
+                .expect("column time not found")
+                .id;
+            assert_eq!(sort_key_ids, &SortedColumnSet::from([region_column_id.get(), time_column_id.get()]));
         });
 
         // Ensure a file was made visible in the catalog
@@ -345,6 +364,22 @@ mod tests {
             .mark_persisting()
             .expect("partition with write should transition to persisting");
 
+        // Read columns from the catalog
+        let columns = catalog
+            .repositories()
+            .await
+            .columns()
+            .list_by_table_id(table_id)
+            .await
+            .expect("query for columns failed");
+
+        // get column id of column name "region"
+        let region_column_id = columns
+            .iter()
+            .find(|c| c.name == "region")
+            .expect("column region not found")
+            .id;
+
         // Update the sort key in the catalog, causing the persist job to
         // discover the change during the persist.
         let updated_partition = catalog
@@ -358,20 +393,14 @@ mod tests {
                 // must use column names that exist in the partition data
                 &["region"],
                 // column id of region
-                //
-                // Due to test simulation that include 3 columns (region, temp and time) each can have random columnID
-                // with value either 1, 2, or 3, the value 2 below is not compeleltely mapped to region column.
-                // If in the future that we modify our code to verify that, this test will be falky and should be updated
-                // The reason we accept it right now becasue there is no way to get columnID of a name without changing a lot
-                // in test setup
-                &SortedColumnSet::from([2]),
+                &SortedColumnSet::from([region_column_id.get()]),
             )
             .await
             .expect("failed to set catalog sort key");
         // Test: sort_key_ids after updating
         assert_eq!(
             updated_partition.sort_key_ids(),
-            Some(&SortedColumnSet::from([2]))
+            Some(&SortedColumnSet::from([region_column_id.get()]))
         );
 
         // Enqueue the persist job
@@ -410,8 +439,13 @@ mod tests {
             // Before there is only ["region"] (manual sort key update above). Now ["region", "time"]
             let sort_key_columns = sort_key.to_columns().collect::<Vec<_>>();
             assert_eq!(sort_key_columns, &["region", "time"]);
-            // Ensure IDs are unique per column name and still has the same length
-            assert_eq!(sort_key_ids.iter().collect::<HashSet<_>>().len(), sort_key_columns.len());
+            // get column id of column name "time"
+            let time_column_id = columns
+                .iter()
+                .find(|c| c.name == "time")
+                .expect("column time not found")
+                .id;
+            assert_eq!(sort_key_ids, &SortedColumnSet::from([region_column_id.get(), time_column_id.get()]));
         });
 
         // Ensure a file was made visible in the catalog

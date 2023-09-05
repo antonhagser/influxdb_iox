@@ -43,8 +43,12 @@ impl SortKeyResolver {
                     .await?;
 
                 let (sort_key, sort_key_ids) =
-                    // todo: build sort_key from sort_key_ids and columns
                     (partition.sort_key(), partition.sort_key_ids_none_if_empty());
+
+                assert_eq!(
+                    sort_key.as_ref().map(|v| v.len()),
+                    sort_key_ids.as_ref().map(|v| v.len())
+                );
 
                 Result::<_, iox_catalog::interface::Error>::Ok((sort_key, sort_key_ids))
             })

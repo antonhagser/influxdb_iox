@@ -421,16 +421,17 @@ impl PartitionData {
         &self.sort_key
     }
 
-    /// Set the cached [`SortKey`] to the specified value.
+    /// Set the cached [`SortKey`] and its corresponding sort_key_ids to the specified values.
     ///
     /// All subsequent calls to [`Self::sort_key`] will return
     /// [`SortKeyState::Provided`]  with the `new`.
     pub(crate) fn update_sort_key(
         &mut self,
-        new_sort_key: Option<SortKey>,
-        new_sort_key_ids: Option<SortedColumnSet>,
+        new_sort_key: SortKey,
+        new_sort_key_ids: SortedColumnSet,
     ) {
-        self.sort_key = SortKeyState::Provided(new_sort_key, new_sort_key_ids);
+        assert_eq!(new_sort_key.len(), new_sort_key_ids.len());
+        self.sort_key = SortKeyState::Provided(Some(new_sort_key), Some(new_sort_key_ids));
     }
 }
 
@@ -998,13 +999,16 @@ mod tests {
             .with_sort_key_state(starting_state)
             .build();
 
-        let want_sort_key = Some(SortKey::from_columns(["banana", "platanos", "time"]));
-        let want_sort_key_ids = Some(SortedColumnSet::from([1, 3, 2]));
+        let want_sort_key = SortKey::from_columns(["banana", "platanos", "time"]);
+        let want_sort_key_ids = SortedColumnSet::from([1, 3, 2]);
         p.update_sort_key(want_sort_key.clone(), want_sort_key_ids.clone());
 
         assert_matches!(p.sort_key(), SortKeyState::Provided(_, _));
-        assert_eq!(p.sort_key().get_sort_key().await, want_sort_key);
-        assert_eq!(p.sort_key().get_sort_key_ids().await, want_sort_key_ids);
+        assert_eq!(p.sort_key().get_sort_key().await.unwrap(), want_sort_key);
+        assert_eq!(
+            p.sort_key().get_sort_key_ids().await.unwrap(),
+            want_sort_key_ids
+        );
     }
 
     // Test loading a deferred sort key from the catalog on demand.
@@ -1068,13 +1072,16 @@ mod tests {
             .with_sort_key_state(starting_state)
             .build();
 
-        let want_sort_key = Some(SortKey::from_columns(["banana", "platanos", "time"]));
-        let want_sort_key_ids = Some(SortedColumnSet::from([1, 3, 2]));
+        let want_sort_key = SortKey::from_columns(["banana", "platanos", "time"]);
+        let want_sort_key_ids = SortedColumnSet::from([1, 3, 2]);
         p.update_sort_key(want_sort_key.clone(), want_sort_key_ids.clone());
 
         assert_matches!(p.sort_key(), SortKeyState::Provided(_, _));
-        assert_eq!(p.sort_key().get_sort_key().await, want_sort_key);
-        assert_eq!(p.sort_key().get_sort_key_ids().await, want_sort_key_ids);
+        assert_eq!(p.sort_key().get_sort_key().await.unwrap(), want_sort_key);
+        assert_eq!(
+            p.sort_key().get_sort_key_ids().await.unwrap(),
+            want_sort_key_ids
+        );
     }
 
     // Perform writes with non-monotonic sequence numbers.

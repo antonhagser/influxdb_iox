@@ -169,25 +169,32 @@ async fn compact_and_upload<O>(
 where
     O: Send + Sync,
 {
-    // load sort key
+    // Read the partition sort key from the catalog.
+    //
+    // Sort keys may be updated by any ingester at any time, and updates to the
+    // sort key MUST be serialised.
     let sort_key = ctx.sort_key().get_sort_key().await;
-    // TODO & verify with Dom: I think since we have added sort_key_ids into the SortKeyState which is a part of the context,
-    // we can get it here and no need to fecth_column_map for it. However, we still need to fetch the columns for different use
-    // fetch column map
-    // THIS MUST BE DONE AFTER THE SORT KEY IS LOADED
-    let (sort_key, columns) = fetch_column_map(ctx, worker_state, sort_key).await?;
 
-    let compacted = compact(ctx, worker_state, sort_key).await;
+    // Fetch the "column name -> column ID" map.
+    //
+    // This MUST happen after the sort key has loaded, to ensure all the columns
+    // defined in the sort key are present in the map. If the values were
+    // fetched in reverse order, a race exists where the sort key could be
+    // updated to include a column that does not exist in the column map.
+    let column_map = fetch_column_map(ctx, worker_state, sort_key.as_ref()).await?;
+
+    let compacted = compact(ctx, worker_state, sort_key.as_ref()).await;
     let (sort_key_update, parquet_table_data) =
-        upload(ctx, worker_state, compacted, &columns).await;
+        upload(ctx, worker_state, compacted, &column_map).await;
 
-    if let Some(update) = sort_key_update {
+    if let Some(sort_key_update) = sort_key_update {
         update_catalog_sort_key(
             ctx,
             worker_state,
-            update,
+            sort_key,        // Old sort key prior to this persist job
+            sort_key_update, // New sort key updated by this persist job
             parquet_table_data.object_store_id,
-            &columns,
+            &column_map,
         )
         .await?
     }
@@ -200,7 +207,7 @@ where
 async fn compact<O>(
     ctx: &Context,
     worker_state: &SharedWorkerState<O>,
-    sort_key: Option<SortKey>,
+    sort_key: Option<&SortKey>,
 ) -> CompactedStream
 where
     O: Send + Sync,
@@ -229,7 +236,6 @@ where
         ctx.data().query_adaptor(),
     )
     .await
-    .expect("unable to compact persisting batch")
 }
 
 /// Upload the compacted data in `compacted`, returning the new sort key value
@@ -328,8 +334,8 @@ async fn fetch_column_map<O>(
     // THIS IS A MUST TO GUARANTEE THE RETURNED COLUMN MAP CONTAINS ALL COLUMNS IN THE SORT KEY
     // The purpose to put the sort_key as a param here is to make sure the caller has already loaded the sort key
     // and the same sort_key is returned
-    sort_key: Option<SortKey>,
-) -> Result<(Option<SortKey>, ColumnsByName), PersistError>
+    sort_key: Option<&SortKey>,
+) -> Result<ColumnsByName, PersistError>
 where
     O: Send + Sync,
 {
@@ -356,7 +362,7 @@ where
         }
     }
 
-    Ok((sort_key, column_map))
+    Ok(column_map)
 }
 
 /// Update the sort key value stored in the catalog for this [`Context`].
@@ -369,6 +375,7 @@ where
 async fn update_catalog_sort_key<O>(
     ctx: &mut Context,
     worker_state: &SharedWorkerState<O>,
+    _old_sort_key: Option<SortKey>,
     new_sort_key: SortKey,
     object_store_id: Uuid,
     columns: &ColumnsByName,
@@ -490,7 +497,7 @@ where
     match update_result {
         Ok(new_sort_key_ids) => {
             // Update the sort key in the Context & PartitionData.
-            ctx.set_partition_sort_key(new_sort_key.clone(), Some(new_sort_key_ids.clone()))
+            ctx.set_partition_sort_key(new_sort_key.clone(), new_sort_key_ids.clone())
                 .await;
 
             debug!(
@@ -512,12 +519,14 @@ where
             // Update the cached sort key in the Context (which pushes it
             // through into the PartitionData also) to reflect the newly
             // observed value for the next attempt.
+            assert!(new_sort_key_ids.is_some());
+            let new_sort_key_ids = new_sort_key_ids.unwrap();
             ctx.set_partition_sort_key(new_sort_key.clone(), new_sort_key_ids.clone())
                 .await;
 
             return Err(PersistError::ConcurrentSortKeyUpdate(
                 new_sort_key,
-                new_sort_key_ids,
+                Some(new_sort_key_ids),
             ));
         }
     }

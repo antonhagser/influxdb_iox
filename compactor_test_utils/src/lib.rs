@@ -42,7 +42,10 @@ use compactor::{
     PartitionInfo,
 };
 use compactor_scheduler::SchedulerConfig;
-use data_types::{ColumnType, CompactionLevel, ParquetFile, SortedColumnSet, TableId};
+use data_types::{
+    ColumnType, CompactionLevel, ParquetFile, PartitionId, SortedColumnSet, TableId,
+    TransitionPartitionId,
+};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion_util::config::register_iox_object_store;
 use futures::TryStreamExt;
@@ -81,6 +84,9 @@ pub struct TestSetupBuilder<const WITH_FILES: bool> {
     run_log: Arc<Mutex<Vec<String>>>,
     /// Checker that catalog invariant are not violated
     invariant_check: Arc<dyn InvariantCheck>,
+    /// Split times required to occur during the simulation
+    /// This starts as the full list of what we need to see, and they're removed as they occur.
+    required_split_times: Arc<Mutex<Vec<i64>>>,
     /// A shared count of total bytes written during test
     bytes_written: Arc<AtomicUsize>,
     /// A shared count of the breakdown of where bytes were written
@@ -168,6 +174,7 @@ impl TestSetupBuilder<false> {
         let bytes_written = Arc::new(AtomicUsize::new(0));
         let bytes_written_per_plan: Arc<Mutex<HashMap<String, usize>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let required_split_times: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(vec![]));
 
         Self {
             config,
@@ -178,6 +185,7 @@ impl TestSetupBuilder<false> {
             files: vec![],
             run_log,
             invariant_check,
+            required_split_times,
             bytes_written,
             bytes_written_per_plan,
             suppress_writes_breakdown,
@@ -194,7 +202,7 @@ impl TestSetupBuilder<false> {
         let time_5_minutes_future = time_provider.minutes_into_future(5);
 
         // L1 file
-        let lp = vec![
+        let lp = [
             "table,tag2=PA,tag3=15 field_int=1601i 30000",
             "table,tag2=OH,tag3=21 field_int=21i 36000", // will be eliminated due to duplicate
         ]
@@ -209,7 +217,7 @@ impl TestSetupBuilder<false> {
         let level_1_file_1_minute_ago = self.partition.create_parquet_file(builder).await.into();
 
         // L0 file
-        let lp = vec![
+        let lp = [
             "table,tag1=WA field_int=1000i 8000", // will be eliminated due to duplicate
             "table,tag1=VT field_int=10i 10000", // latest L0 compared with duplicate in level_1_file_1_minute_ago_with_duplicates
             // keep it
@@ -226,7 +234,7 @@ impl TestSetupBuilder<false> {
         let level_0_file_16_minutes_ago = self.partition.create_parquet_file(builder).await.into();
 
         // L0 file
-        let lp = vec![
+        let lp = [
             "table,tag1=WA field_int=1500i 8000", // latest duplicate and kept
             "table,tag1=VT field_int=10i 6000",
             "table,tag1=UT field_int=270i 25000",
@@ -242,7 +250,7 @@ impl TestSetupBuilder<false> {
         let level_0_file_5_minutes_ago = self.partition.create_parquet_file(builder).await.into();
 
         // L1 file
-        let lp = vec![
+        let lp = [
             "table,tag1=VT field_int=88i 10000", //  will be eliminated due to duplicate.
             // Note: created time more recent than level_0_file_16_minutes_ago
             // but always considered older ingested data
@@ -260,7 +268,7 @@ impl TestSetupBuilder<false> {
             self.partition.create_parquet_file(builder).await.into();
 
         // L0 file
-        let lp = vec!["table,tag2=OH,tag3=21 field_int=22i 36000"].join("\n");
+        let lp = ["table,tag2=OH,tag3=21 field_int=22i 36000"].join("\n");
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol(&lp)
             .with_min_time(0)
@@ -273,7 +281,7 @@ impl TestSetupBuilder<false> {
         let medium_level_0_file_time_now = self.partition.create_parquet_file(builder).await.into();
 
         // L0 file
-        let lp = vec![
+        let lp = [
             "table,tag1=VT field_int=10i 68000",
             "table,tag2=OH,tag3=21 field_int=210i 136000",
         ]
@@ -308,6 +316,7 @@ impl TestSetupBuilder<false> {
         let bytes_written = Arc::new(AtomicUsize::new(0));
         let bytes_written_per_plan: Arc<Mutex<HashMap<String, usize>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let required_split_times: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(vec![]));
 
         TestSetupBuilder::<true> {
             config: self.config,
@@ -318,6 +327,7 @@ impl TestSetupBuilder<false> {
             files,
             run_log: Arc::new(Mutex::new(vec![])),
             invariant_check,
+            required_split_times,
             bytes_written,
             bytes_written_per_plan,
             suppress_writes_breakdown: true,
@@ -345,6 +355,7 @@ impl TestSetupBuilder<false> {
         let bytes_written = Arc::new(AtomicUsize::new(0));
         let bytes_written_per_plan: Arc<Mutex<HashMap<String, usize>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let required_split_times: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(vec![]));
 
         TestSetupBuilder::<true> {
             config: self.config.clone(),
@@ -355,6 +366,7 @@ impl TestSetupBuilder<false> {
             files,
             run_log: Arc::new(Mutex::new(vec![])),
             invariant_check,
+            required_split_times,
             bytes_written,
             bytes_written_per_plan,
             suppress_writes_breakdown: true,
@@ -383,6 +395,7 @@ impl TestSetupBuilder<false> {
         let bytes_written = Arc::new(AtomicUsize::new(0));
         let bytes_written_per_plan: Arc<Mutex<HashMap<String, usize>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let required_split_times: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(vec![]));
 
         TestSetupBuilder::<true> {
             config: self.config.clone(),
@@ -393,6 +406,7 @@ impl TestSetupBuilder<false> {
             files,
             run_log: Arc::new(Mutex::new(vec![])),
             invariant_check,
+            required_split_times,
             bytes_written,
             bytes_written_per_plan,
             suppress_writes_breakdown: true,
@@ -403,7 +417,7 @@ impl TestSetupBuilder<false> {
     /// Create 3 L2 files
     pub async fn create_three_l2_files(&self, time: TestTimes) -> Vec<ParquetFile> {
         // L2.1 file
-        let lp = vec![
+        let lp = [
             "table,tag1=WA field_int=1000i 8000", // will be eliminated due to duplicate
             "table,tag1=VT field_int=88i 10000",  //  will be eliminated due to duplicate.
             "table,tag1=OR field_int=99i 12000",
@@ -419,7 +433,7 @@ impl TestSetupBuilder<false> {
         let l2_1 = self.partition.create_parquet_file(builder).await.into();
 
         // L2.2 file
-        let lp = vec![
+        let lp = [
             "table,tag1=UT field_int=70i 20000",
             "table,tag2=PA,tag3=15 field_int=1601i 30000",
         ]
@@ -434,7 +448,7 @@ impl TestSetupBuilder<false> {
         let l2_2 = self.partition.create_parquet_file(builder).await.into();
 
         // L2.3 file
-        let lp = vec!["table,tag2=OH,tag3=21 field_int=21i 36000"].join("\n");
+        let lp = ["table,tag2=OH,tag3=21 field_int=21i 36000"].join("\n");
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol(&lp)
             .with_creation_time(Time::from_timestamp_nanos(time.time_3_minutes_future))
@@ -455,7 +469,7 @@ impl TestSetupBuilder<false> {
         time: TestTimes,
     ) -> Vec<ParquetFile> {
         // L1.1 file
-        let lp = vec![
+        let lp = [
             "table,tag1=WA field_int=1500i 8000", // latest duplicate and kept
             "table,tag1=VT field_int=10i 10000",  // latest duplicate and kept
             "table,tag1=VT field_int=10i 6000",
@@ -474,7 +488,7 @@ impl TestSetupBuilder<false> {
         let l1_1 = self.partition.create_parquet_file(builder).await.into();
 
         // L1.2 file
-        let lp = vec!["table,tag2=OH,tag3=21 field_int=210i 136000"].join("\n");
+        let lp = ["table,tag2=OH,tag3=21 field_int=210i 136000"].join("\n");
         let builder = TestParquetFileBuilder::default()
             .with_line_protocol(&lp)
             .with_min_time(136000)
@@ -494,7 +508,7 @@ impl TestSetupBuilder<false> {
         time: TestTimes,
     ) -> Vec<ParquetFile> {
         // L1.1 file
-        let lp = vec![
+        let lp = [
             "table,tag1=WA field_int=1500i 8000", // latest duplicate and kept
             "table,tag1=VT field_int=10i 10000",  // latest duplicate and kept
             "table,tag1=VT field_int=10i 6000",
@@ -511,7 +525,7 @@ impl TestSetupBuilder<false> {
         let l1_1 = self.partition.create_parquet_file(builder).await.into();
 
         // L1.2 file
-        let lp = vec![
+        let lp = [
             "table,tag2=PA,tag3=15 field_int=1601i 28000",
             "table,tag1=VT field_int=10i 68000",
             "table,tag2=OH,tag3=21 field_int=210i 136000",
@@ -567,12 +581,14 @@ impl<const WITH_FILES: bool> TestSetupBuilder<WITH_FILES> {
         let run_log = Arc::clone(&self.run_log);
         let bytes_written = Arc::clone(&self.bytes_written);
         let bytes_written_per_plan = Arc::clone(&self.bytes_written_per_plan);
+        let required_split_times = Arc::clone(&self.required_split_times);
 
         self.config.simulate_without_object_store = true;
         self.config.parquet_files_sink_override = Some(Arc::new(ParquetFileSimulator::new(
             run_log,
             bytes_written,
             bytes_written_per_plan,
+            required_split_times,
         )));
         self
     }
@@ -580,6 +596,15 @@ impl<const WITH_FILES: bool> TestSetupBuilder<WITH_FILES> {
     /// Set max_desired_file_size_bytes
     pub fn with_max_desired_file_size_bytes(mut self, max_desired_file_size_bytes: u64) -> Self {
         self.config.max_desired_file_size_bytes = max_desired_file_size_bytes;
+        self
+    }
+
+    /// Set split times required to be used
+    pub fn with_required_split_times(self, required_split_times: Vec<i64>) -> Self {
+        self.required_split_times
+            .lock()
+            .unwrap()
+            .extend(required_split_times);
         self
     }
 
@@ -627,6 +652,7 @@ impl<const WITH_FILES: bool> TestSetupBuilder<WITH_FILES> {
             invariant_check: self.invariant_check,
             suppress_writes_breakdown: self.suppress_writes_breakdown,
             suppress_run_output: self.suppress_run_output,
+            required_split_times: self.required_split_times,
         }
     }
 }
@@ -658,6 +684,8 @@ pub struct TestSetup {
     pub bytes_written_per_plan: Arc<Mutex<HashMap<String, usize>>>,
     /// Checker that catalog invariant are not violated
     invariant_check: Arc<dyn InvariantCheck>,
+    /// Split times required to be used during simulation.
+    pub required_split_times: Arc<Mutex<Vec<i64>>>,
 }
 
 impl TestSetup {
@@ -941,6 +969,13 @@ where
             .await
             .expect("timeout")
     }
+}
+
+/// This setup provides the fake partition_id needed for test cases.
+///
+/// the TransitionPartitionId is to be iterated upon, so this is a single location for updates
+pub fn create_fake_partition_id() -> TransitionPartitionId {
+    TransitionPartitionId::Deprecated(PartitionId::new(0))
 }
 
 /// This setup will return files with ranges as follows:

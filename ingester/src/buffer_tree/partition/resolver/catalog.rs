@@ -76,6 +76,14 @@ impl PartitionProvider for CatalogPartitionResolver {
             .await
             .expect("retry forever");
 
+        let p_sort_key = p.sort_key();
+        let p_sort_key_ids = p.sort_key_ids_none_if_empty();
+
+        assert_eq!(
+            p_sort_key.as_ref().map(|v| v.len()),
+            p_sort_key_ids.as_ref().map(|v| v.len())
+        );
+
         Arc::new(Mutex::new(PartitionData::new(
             p.transition_partition_id(),
             // Use the caller's partition key instance, as it MAY be shared with
@@ -86,8 +94,7 @@ impl PartitionProvider for CatalogPartitionResolver {
             namespace_name,
             table_id,
             table,
-            // todo: build sort_key from sort_key_ids
-            SortKeyState::Provided(p.sort_key(), p.sort_key_ids_none_if_empty()),
+            SortKeyState::Provided(p_sort_key, p_sort_key_ids),
         )))
     }
 }

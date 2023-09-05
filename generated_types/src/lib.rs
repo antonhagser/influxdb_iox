@@ -106,6 +106,16 @@ pub mod influxdata {
                 /// New namespace, table, and column additions observed and
                 /// broadcast by the routers.
                 SchemaChanges = 1,
+
+                /// Parquet file creation notifications.
+                NewParquetFiles = 2,
+
+                /// Compaction round completion notifications.
+                CompactionEvents = 3,
+
+                /// Schema cache consistency check / sync / convergence
+                /// messages.
+                SchemaCacheConsistency = 4,
             }
 
             impl TryFrom<u64> for Topic {
@@ -114,6 +124,11 @@ pub mod influxdata {
                 fn try_from(v: u64) -> Result<Self, Self::Error> {
                     Ok(match v {
                         v if v == Self::SchemaChanges as u64 => Self::SchemaChanges,
+                        v if v == Self::NewParquetFiles as u64 => Self::NewParquetFiles,
+                        v if v == Self::CompactionEvents as u64 => Self::CompactionEvents,
+                        v if v == Self::SchemaCacheConsistency as u64 => {
+                            Self::SchemaCacheConsistency
+                        }
                         _ => return Err(format!("unknown topic id {}", v).into()),
                     })
                 }
@@ -310,7 +325,12 @@ mod tests {
 
     #[test]
     fn test_gossip_topics() {
-        let topics = [Topic::SchemaChanges];
+        let topics = [
+            Topic::SchemaChanges,
+            Topic::NewParquetFiles,
+            Topic::CompactionEvents,
+            Topic::SchemaCacheConsistency,
+        ];
 
         for topic in topics {
             let v = u64::from(topic);
@@ -323,6 +343,9 @@ mod tests {
         // message).
         match topics[0] {
             Topic::SchemaChanges => {}
+            Topic::NewParquetFiles => {}
+            Topic::CompactionEvents => {}
+            Topic::SchemaCacheConsistency => {}
         }
     }
 }

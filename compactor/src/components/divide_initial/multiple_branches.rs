@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use data_types::{CompactionLevel, ParquetFile, Timestamp};
+use data_types::{CompactionLevel, ParquetFile, Timestamp, TransitionPartitionId};
 
 use crate::{
     components::split_or_compact::start_level_files_to_split::{
@@ -44,6 +44,7 @@ impl DivideInitial for MultipleBranchesDivideInitial {
         &self,
         files: Vec<ParquetFile>,
         round_info: RoundInfo,
+        partition: TransitionPartitionId,
     ) -> (Vec<Vec<ParquetFile>>, Vec<ParquetFile>) {
         let mut more_for_later = vec![];
         match round_info {
@@ -245,6 +246,30 @@ impl DivideInitial for MultipleBranchesDivideInitial {
 
             // RoundSplit already eliminated all the files we don't need to work on.
             RoundInfo::VerticalSplit { .. } => (vec![files], more_for_later),
+
+            RoundInfo::CompactRanges { ranges, .. } => {
+                // Each range describes what can be a distinct branch, concurrently compacted.
+
+                let mut branches = Vec::with_capacity(ranges.len());
+                let mut this_branch: Vec<ParquetFile>;
+                let mut files = files;
+
+                for range in &ranges {
+                    (this_branch, files) = files.into_iter().partition(|f2| {
+                        f2.overlaps_time_range(Timestamp::new(range.min), Timestamp::new(range.max))
+                    });
+
+                    if !this_branch.is_empty() {
+                        branches.push(this_branch)
+                    }
+                }
+                assert!(
+                    files.is_empty(),
+                    "all files should map to a range, instead partition {} had unmapped files",
+                    partition
+                );
+                (branches, vec![])
+            }
         }
     }
 }
@@ -274,7 +299,7 @@ pub fn order_files(files: Vec<ParquetFile>, start_level: CompactionLevel) -> Vec
 
 #[cfg(test)]
 mod tests {
-    use data_types::CompactionLevel;
+    use data_types::{CompactionLevel, PartitionId};
     use iox_tests::ParquetFileBuilder;
 
     use super::*;
@@ -298,7 +323,11 @@ mod tests {
 
         // empty input
         assert_eq!(
-            divide.divide(vec![], round_info.clone()),
+            divide.divide(
+                vec![],
+                round_info.clone(),
+                TransitionPartitionId::Deprecated(PartitionId::new(0))
+            ),
             (Vec::<Vec<_>>::new(), Vec::new())
         );
 
@@ -319,7 +348,11 @@ mod tests {
         // files in random order of max_l0_created_at
         let files = vec![f2.clone(), f3.clone(), f1.clone()];
 
-        let (branches, more_for_later) = divide.divide(files, round_info.clone());
+        let (branches, more_for_later) = divide.divide(
+            files,
+            round_info.clone(),
+            TransitionPartitionId::Deprecated(PartitionId::new(0)),
+        );
         // output must be split into their max_l0_created_at
         assert_eq!(branches.len(), 1);
         assert_eq!(more_for_later.len(), 1);
@@ -353,7 +386,11 @@ mod tests {
         let files = vec![f2, f1];
 
         // panic
-        let (_branches, _more_for_later) = divide.divide(files, round_info);
+        let (_branches, _more_for_later) = divide.divide(
+            files,
+            round_info,
+            TransitionPartitionId::Deprecated(PartitionId::new(0)),
+        );
     }
 
     #[test]
@@ -384,7 +421,11 @@ mod tests {
         // files in random order of max_l0_created_at
         let files = vec![f2.clone(), f3.clone(), f1.clone()];
 
-        let (branches, more_for_later) = divide.divide(files, round_info);
+        let (branches, more_for_later) = divide.divide(
+            files,
+            round_info,
+            TransitionPartitionId::Deprecated(PartitionId::new(0)),
+        );
         // output must be split into their max_l0_created_at
         assert_eq!(branches.len(), 1);
         assert_eq!(more_for_later.len(), 1);

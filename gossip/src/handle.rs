@@ -1,9 +1,8 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, net::SocketAddr};
 
 use crate::{topic_set::Topic, Bytes, MAX_USER_PAYLOAD_BYTES};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
-use uuid::Uuid;
 
 use crate::peers::Identity;
 
@@ -14,16 +13,29 @@ use crate::peers::Identity;
 #[allow(missing_copy_implementations)]
 pub struct PayloadSizeError {}
 
+/// Specify the target of a broadcast.
+#[derive(Debug)]
+pub(crate) enum BroadcastType {
+    /// All interested peers.
+    AllPeers,
+
+    /// A subset of peers of the interested peers.
+    PeerSubset,
+}
+
 /// Requests sent to the [`Reactor`] actor task.
 ///
 /// [`Reactor`]: crate::reactor::Reactor
 #[derive(Debug)]
 pub(crate) enum Request {
     /// Broadcast the given payload to all known peers.
-    Broadcast(Bytes, Topic),
+    Broadcast(Bytes, Topic, BroadcastType),
 
     /// Get a snapshot of the peer identities.
-    GetPeers(oneshot::Sender<Vec<Uuid>>),
+    GetPeers(oneshot::Sender<Vec<Identity>>),
+
+    /// Get the [`SocketAddr`] associated with a given peer [`Identity`].
+    GetPeerAddr(Identity, oneshot::Sender<Option<SocketAddr>>),
 }
 
 /// A handle to the gossip subsystem.
@@ -41,7 +53,7 @@ pub struct GossipHandle<S = u64> {
 
 impl<S> GossipHandle<S>
 where
-    S: Send + Sync,
+    S: Into<u64> + Send + Sync,
 {
     pub(crate) fn new(tx: mpsc::Sender<Request>, identity: Identity) -> Self {
         Self {
@@ -52,8 +64,8 @@ where
     }
 
     /// Return the randomly generated identity of this gossip instance.
-    pub fn identity(&self) -> Uuid {
-        *self.identity
+    pub fn identity(&self) -> Identity {
+        self.identity.clone()
     }
 
     /// Broadcast `payload` to all known peers.
@@ -82,7 +94,31 @@ where
     pub async fn broadcast<T>(&self, payload: T, topic: S) -> Result<(), PayloadSizeError>
     where
         T: Into<Bytes> + Send,
-        S: Into<u64>,
+    {
+        self.push_broadcast(payload, topic, BroadcastType::AllPeers)
+            .await
+    }
+
+    /// Broadcast the specified `payload` in the provided `topic` to a random
+    /// subset of gossip peers.
+    ///
+    /// See [`GossipHandle::broadcast()`] for documentation.
+    pub async fn broadcast_subset<T>(&self, payload: T, topic: S) -> Result<(), PayloadSizeError>
+    where
+        T: Into<Bytes> + Send,
+    {
+        self.push_broadcast(payload, topic, BroadcastType::PeerSubset)
+            .await
+    }
+
+    async fn push_broadcast<T>(
+        &self,
+        payload: T,
+        topic: S,
+        subset: BroadcastType,
+    ) -> Result<(), PayloadSizeError>
+    where
+        T: Into<Bytes> + Send,
     {
         let payload = payload.into();
         if payload.len() > MAX_USER_PAYLOAD_BYTES {
@@ -90,7 +126,7 @@ where
         }
 
         self.tx
-            .send(Request::Broadcast(payload, Topic::encode(topic)))
+            .send(Request::Broadcast(payload, Topic::encode(topic), subset))
             .await
             .unwrap();
 
@@ -98,9 +134,19 @@ where
     }
 
     /// Retrieve a snapshot of the connected peer list.
-    pub async fn get_peers(&self) -> Vec<Uuid> {
+    pub async fn get_peers(&self) -> Vec<Identity> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Request::GetPeers(tx)).await.unwrap();
+        rx.await.unwrap()
+    }
+
+    /// Return the [`SocketAddr`] being used by the specified `peer`.
+    ///
+    /// This method returns [`None`] if the `peer` is no longer in the local
+    /// peer list.
+    pub async fn get_peer_addr(&self, peer: Identity) -> Option<SocketAddr> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Request::GetPeerAddr(peer, tx)).await.unwrap();
         rx.await.unwrap()
     }
 }

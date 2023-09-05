@@ -195,17 +195,23 @@ impl Context {
     /// diverged from the cached sort key in `self`, indicating concurrent
     /// persist jobs that update the sort key for the same [`PartitionData`]
     /// running in this ingester process.
+    ///
+    /// For now, we keep both sort_key and sort_key_ids in the SortKeyState of PartitionData.
+    /// They contain information of the same columns but one for names and the other for ids.
+    /// In near future when the sort_key is removed from Partition, we can optimize to
+    /// remove the sort_key from the SortKeyState and remove it from this method, too
     pub(super) async fn set_partition_sort_key(
         &mut self,
         new_sort_key: SortKey,
-        new_sort_key_ids: Option<SortedColumnSet>,
+        new_sort_key_ids: SortedColumnSet,
     ) {
         // Invalidate the sort key in the partition.
         let old_key;
         {
             let mut guard = self.partition.lock();
             old_key = guard.sort_key().clone();
-            guard.update_sort_key(Some(new_sort_key.clone()), new_sort_key_ids.clone());
+
+            guard.update_sort_key(new_sort_key.clone(), new_sort_key_ids.clone());
         };
 
         // Assert the internal (to this ingester instance) serialisation of
@@ -219,7 +225,7 @@ impl Context {
         );
 
         // Update the cached copy of the sort key in this Context.
-        self.sort_key = SortKeyState::Provided(Some(new_sort_key), new_sort_key_ids);
+        self.sort_key = SortKeyState::Provided(Some(new_sort_key), Some(new_sort_key_ids));
     }
 
     // Call [`PartitionData::mark_complete`] to finalise the persistence job,
