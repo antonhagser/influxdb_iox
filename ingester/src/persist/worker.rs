@@ -380,7 +380,7 @@ where
 ///
 /// Similarly, to avoid too much changes, we will compute new_sort_key_ids from
 /// the provided new_sort_key and the columns. In the future, we will optimize to use
-/// new_sort_key_ids directly instead of new_sort_key.
+/// new_sort_key_ids directly.
 async fn update_catalog_sort_key<O>(
     ctx: &mut Context,
     worker_state: &SharedWorkerState<O>,
@@ -395,7 +395,7 @@ where
 {
     // convert old_sort_key into a vector of string
     let old_sort_key =
-        old_sort_key.map(|v| v.to_columns().map(|c| c.to_string()).collect::<Vec<_>>());
+        old_sort_key.map(|v| v.to_columns().map(|v| v.to_string()).collect::<Vec<_>>());
 
     debug!(
         %object_store_id,
