@@ -1631,8 +1631,9 @@ pub(crate) mod test_helpers {
 
         // sort_key should be empty on creation
         assert!(to_skip_partition.sort_key.is_empty());
+        assert!(to_skip_partition.sort_key_ids.as_ref().unwrap().is_empty());
 
-        // test update_sort_key from None to Some
+        // test that updates sort_key and sort_key_ids from None to Some
         let updated_partition = repos
             .partitions()
             .cas_sort_key(
@@ -1645,15 +1646,15 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
 
-        // verify sort key and sort key ids  are updated
+        // verify sort_key and sort_key_ids are updated correctly
         assert_eq!(updated_partition.sort_key, &["tag2", "tag1", "time"]);
         assert_eq!(
             updated_partition.sort_key_ids,
             Some(SortedColumnSet::from([2, 1, 3]))
         );
 
-        // test sort key CAS with an incorrect value
-        // non-existing old_sort_key and old_sort_key_ids
+        // test that provides values of both old_sort_key and old_sort_key_ids but they do not match the existing ones
+        // --> the new sort key will not be updated
         let err = repos
             .partitions()
             .cas_sort_key(
@@ -1665,12 +1666,76 @@ pub(crate) mod test_helpers {
             )
             .await
             .expect_err("CAS with incorrect value should fail");
+        // verify the sort key is is not updated
         assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
             assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
             assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
         });
 
-        // test getting the new sort key
+        // test that provides values of old_sort_key match but old_sort_key_ids does not match with corresponding existing ones
+        // --> the new sort key will not be updated
+        let err = repos
+            .partitions()
+            .cas_sort_key(
+                &to_skip_partition.transition_partition_id(),
+                Some(["tag2".to_string(), "tag1".to_string(), "time".to_string()].to_vec()),
+                Some(SortedColumnSet::from([1, 5, 10])),
+                &["tag2", "tag1", "tag3 , with comma", "time"],
+                &SortedColumnSet::from([1, 2, 3, 4]),
+            )
+            .await
+            .expect_err("CAS with incorrect value should fail");
+        // verify the sort key is is not updated
+        assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
+            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
+            assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
+        });
+
+        // test that provides values of old_sort_key does not match but old_sort_key_ids match with corresponding existing ones
+        // --> the new sort key will not be updated
+        let err = repos
+            .partitions()
+            .cas_sort_key(
+                &to_skip_partition.transition_partition_id(),
+                Some(
+                    [
+                        "bananas".to_string(),
+                        "tag1".to_string(),
+                        "time".to_string(),
+                    ]
+                    .to_vec(),
+                ),
+                Some(SortedColumnSet::from([2, 1, 3])),
+                &["tag2", "tag1", "tag3 , with comma", "time"],
+                &SortedColumnSet::from([1, 2, 3, 4]),
+            )
+            .await
+            .expect_err("CAS with incorrect value should fail");
+        // verify the sort key is is not updated
+        assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
+            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
+            assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
+        });
+
+        // test that provide None sort_key and None sort_key_ids that do not match with existing vlaues that are not None
+        // --> the new sort key will not be updated
+        let err = repos
+            .partitions()
+            .cas_sort_key(
+                &to_skip_partition.transition_partition_id(),
+                None,
+                None,
+                &["tag2", "tag1", "tag3 , with comma", "time"],
+                &SortedColumnSet::from([1, 2, 3, 4]),
+            )
+            .await
+            .expect_err("CAS with incorrect value should fail");
+        assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
+            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
+            assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
+        });
+
+        // test getting partition from partition id and verify values of sort_key and sort_key_ids
         let updated_other_partition = repos
             .partitions()
             .get_by_id(to_skip_partition.id)
@@ -1687,40 +1752,24 @@ pub(crate) mod test_helpers {
             Some(SortedColumnSet::from([2, 1, 3]))
         );
 
+        // test getting partition from hash_id and verify values of sort_key and sort_key_ids
         let updated_other_partition = repos
             .partitions()
             .get_by_hash_id(to_skip_partition.hash_id().unwrap())
             .await
             .unwrap()
             .unwrap();
+        // still has the old sort key
         assert_eq!(
             updated_other_partition.sort_key,
             vec!["tag2", "tag1", "time"]
         );
-        // Test: sort_key_ids from get_by_hash_id
         assert_eq!(
             updated_other_partition.sort_key_ids,
             Some(SortedColumnSet::from([2, 1, 3]))
         );
 
-        // test sort key CAS with no value
-        let err = repos
-            .partitions()
-            .cas_sort_key(
-                &to_skip_partition.transition_partition_id(),
-                None,
-                None,
-                &["tag2", "tag1", "tag3 , with comma", "time"],
-                &SortedColumnSet::from([1, 2, 3, 4]),
-            )
-            .await
-            .expect_err("CAS with incorrect value should fail");
-        assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
-            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
-            assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
-        });
-
-        // test update_sort_key from Some value to Some other value
+        // test that updates sort_key and sort_key_ids from Some matching values to Some other values
         let updated_partition = repos
             .partitions()
             .cas_sort_key(
@@ -1737,6 +1786,7 @@ pub(crate) mod test_helpers {
             )
             .await
             .unwrap();
+        // verify the new values are updated
         assert_eq!(
             updated_partition.sort_key,
             vec!["tag2", "tag1", "tag3 , with comma", "time"]
@@ -1746,7 +1796,7 @@ pub(crate) mod test_helpers {
             Some(SortedColumnSet::from([2, 1, 4, 3]))
         );
 
-        // test getting the new sort key
+        // test getting the new sort key from partition id
         let updated_partition = repos
             .partitions()
             .get_by_id(to_skip_partition.id)
@@ -1762,6 +1812,7 @@ pub(crate) mod test_helpers {
             Some(SortedColumnSet::from([2, 1, 4, 3]))
         );
 
+        // test getting the new sort key from partition hash_id
         let updated_partition = repos
             .partitions()
             .get_by_hash_id(to_skip_partition.hash_id().unwrap())
