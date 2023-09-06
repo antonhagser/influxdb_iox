@@ -1828,6 +1828,35 @@ pub(crate) mod test_helpers {
             Some(SortedColumnSet::from([2, 1, 4, 3]))
         );
 
+        // use to_skip_partition_too to update sort key from empty old values
+        // first make sure the old values are empty
+        assert!(to_skip_partition_too.sort_key.is_empty());
+        assert!(to_skip_partition_too
+            .sort_key_ids
+            .as_ref()
+            .unwrap()
+            .is_empty());
+
+        // test that provides empty old_sort_key and empty old_sort_key_ids
+        // --> the new sort key will be updated
+        let updated_to_skip_partition_too = repos
+            .partitions()
+            .cas_sort_key(
+                &to_skip_partition_too.transition_partition_id(),
+                Some(vec![]),
+                Some(SortedColumnSet::from([])),
+                &["tag3", "time"],
+                &SortedColumnSet::from([3, 4]),
+            )
+            .await
+            .unwrap();
+        // verify the new values are updated
+        assert_eq!(updated_to_skip_partition_too.sort_key, vec!["tag3", "time"]);
+        assert_eq!(
+            updated_to_skip_partition_too.sort_key_ids,
+            Some(SortedColumnSet::from([3, 4]))
+        );
+
         // The compactor can log why compaction was skipped
         let skipped_compactions = repos.partitions().list_skipped_compactions().await.unwrap();
         assert!(
@@ -2010,10 +2039,17 @@ pub(crate) mod test_helpers {
         assert_eq!(recent.len(), 4);
 
         // Test: sort_key_ids from most_recent_n
-        // Only the second one has vallues, the other 3 are empty
+        // Only the first two partitions (represent to_skip_partition_too and to_skip_partition) have vallues, the others are empty
         let empty_vec_string: Vec<String> = vec![];
-        assert_eq!(recent[0].sort_key, empty_vec_string);
-        assert_eq!(recent[0].sort_key_ids, Some(SortedColumnSet::from(vec![])));
+
+        assert_eq!(
+            recent[0].sort_key,
+            vec!["tag3".to_string(), "time".to_string(),]
+        );
+        assert_eq!(
+            recent[0].sort_key_ids,
+            Some(SortedColumnSet::from(vec![3, 4]))
+        );
 
         assert_eq!(
             recent[1].sort_key,
