@@ -2,9 +2,9 @@
 
 use crate::{
     interface::{
-        self, verify_sort_key_length, CasFailure, Catalog, ColumnRepo, ColumnTypeMismatchSnafu,
-        Error, NamespaceRepo, ParquetFileRepo, PartitionRepo, RepoCollection, Result,
-        SoftDeletedRows, TableRepo, MAX_PARQUET_FILES_SELECTED_ONCE_FOR_RETENTION,
+        self, CasFailure, Catalog, ColumnRepo, ColumnTypeMismatchSnafu, Error, NamespaceRepo,
+        ParquetFileRepo, PartitionRepo, RepoCollection, Result, SoftDeletedRows, TableRepo,
+        MAX_PARQUET_FILES_SELECTED_ONCE_FOR_RETENTION,
     },
     kafkaless_transition::{
         SHARED_QUERY_POOL, SHARED_QUERY_POOL_ID, SHARED_TOPIC_ID, SHARED_TOPIC_NAME,
@@ -1015,12 +1015,13 @@ WHERE table_id = $1;
         new_sort_key: &[&str],
         new_sort_key_ids: &SortedColumnSet,
     ) -> Result<Partition, CasFailure<(Vec<String>, Option<SortedColumnSet>)>> {
+        // These asserts are here to cacth bugs. They will be removed when we remove the sort_key
+        // field from the Partition
         assert_eq!(
             old_sort_key.as_ref().map(|v| v.len()),
             old_sort_key_ids.as_ref().map(|v| v.len())
         );
-
-        verify_sort_key_length(new_sort_key, new_sort_key_ids);
+        assert_eq!(new_sort_key.len(), new_sort_key_ids.len());
 
         let old_sort_key = old_sort_key.unwrap_or_default();
         let raw_old_sort_key_ids: Vec<_> = old_sort_key_ids

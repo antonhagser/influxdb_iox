@@ -719,16 +719,6 @@ pub async fn list_schemas(
     Ok(iter)
 }
 
-/// panic if sort_key and sort_key_ids have different lengths
-pub(crate) fn verify_sort_key_length(sort_key: &[&str], sort_key_ids: &SortedColumnSet) {
-    if sort_key.len() != sort_key_ids.len() {
-        panic!(
-            "sort_key {:?} and sort_key_ids {:?} are not the same length",
-            sort_key, sort_key_ids
-        );
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod test_helpers {
     use crate::{
@@ -744,23 +734,6 @@ pub(crate) mod test_helpers {
     use generated_types::influxdata::iox::partition_template::v1 as proto;
     use metric::{Attributes, DurationHistogram, Metric};
     use std::{collections::BTreeSet, ops::DerefMut, sync::Arc, time::Duration};
-
-    #[test]
-    fn test_verify_sort_key_length() {
-        let sort_key = vec!["whatever", "time"];
-        let sort_key_ids = SortedColumnSet::from(vec![1, 2]);
-        verify_sort_key_length(&sort_key, &sort_key_ids);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "sort_key [\"whatever\", \"time\"] and sort_key_ids SortedColumnSet([ColumnId(1)]) are not the same length"
-    )]
-    fn test_verify_sort_key_length_different_lens() {
-        let sort_key = vec!["whatever", "time"];
-        let sort_key_ids = SortedColumnSet::from(vec![1]);
-        verify_sort_key_length(&sort_key, &sort_key_ids);
-    }
 
     pub(crate) async fn test_catalog<R, F>(clean_state: R)
     where

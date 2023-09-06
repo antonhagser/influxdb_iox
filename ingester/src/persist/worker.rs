@@ -2,7 +2,7 @@ use std::{ops::ControlFlow, sync::Arc};
 
 use async_channel::RecvError;
 use backoff::Backoff;
-use data_types::{ColumnsByName, CompactionLevel, ParquetFile, ParquetFileParams};
+use data_types::{ColumnsByName, CompactionLevel, ParquetFile, ParquetFileParams, SortedColumnSet};
 use iox_catalog::interface::{get_table_columns_by_id, CasFailure, Catalog};
 use iox_query::exec::Executor;
 use iox_time::{SystemProvider, TimeProvider};
@@ -173,7 +173,7 @@ where
     //
     // Sort keys may be updated by any ingester at any time, and updates to the
     // sort key MUST be serialised.
-    let sort_key = ctx.sort_key().get_sort_key().await;
+    let (sort_key, sort_key_ids) = ctx.sort_key().get().await;
 
     // Fetch the "column name -> column ID" map.
     //
@@ -192,6 +192,7 @@ where
             ctx,
             worker_state,
             sort_key,        // Old sort key prior to this persist job
+            sort_key_ids,    // Corresponding old sort key IDs prior to this persist job
             sort_key_update, // New sort key updated by this persist job
             parquet_table_data.object_store_id,
             &column_map,
@@ -372,10 +373,19 @@ where
 /// If a concurrent sort key change is detected (issued by another node) then
 /// this method updates the sort key in `ctx` to reflect the newly observed
 /// value and returns [`PersistError::ConcurrentSortKeyUpdate`] to the caller.
+///
+/// For now we provide both old_sort_key and old_sort_key_ids to the function.
+/// In near future, when the sort_key field is removed from the partition,
+/// we will remove old_sort_key here and only keep old_sort_key_ids.
+///
+/// Similarly, to avoid too much changes, we will compute new_sort_key_ids from
+/// the provided new_sort_key and the columns. In the future, we will optimize to use
+/// new_sort_key_ids directly instead of new_sort_key.
 async fn update_catalog_sort_key<O>(
     ctx: &mut Context,
     worker_state: &SharedWorkerState<O>,
-    _old_sort_key: Option<SortKey>,
+    old_sort_key: Option<SortKey>, // todo: remove this argument in the future
+    old_sort_key_ids: Option<SortedColumnSet>,
     new_sort_key: SortKey,
     object_store_id: Uuid,
     columns: &ColumnsByName,
@@ -383,8 +393,6 @@ async fn update_catalog_sort_key<O>(
 where
     O: Send + Sync,
 {
-    let (old_sort_key, old_sort_key_ids) = ctx.sort_key().get().await;
-
     // convert old_sort_key into a vector of string
     let old_sort_key =
         old_sort_key.map(|v| v.to_columns().map(|c| c.to_string()).collect::<Vec<_>>());
@@ -426,7 +434,7 @@ where
                     Ok(_) => ControlFlow::Break(Ok(new_sort_key_colids)),
                     Err(CasFailure::QueryError(e)) => ControlFlow::Continue(e),
                     Err(CasFailure::ValueMismatch((observed_sort_key, observed_sort_key_ids)))
-                        if observed_sort_key == new_sort_key_str
+                        if observed_sort_key == new_sort_key_str  // todo: remove this condition on sort_key. Keep the condition on sort_key_ids
                             && observed_sort_key_ids == Some(new_sort_key_colids.clone()) =>
                     {
                         // A CAS failure occurred because of a concurrent
