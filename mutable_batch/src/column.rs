@@ -24,8 +24,29 @@ use std::{fmt::Formatter, mem, sync::Arc};
 #[allow(clippy::upper_case_acronyms)]
 pub(crate) type DID = i32;
 
-/// An invalid DID used for NULL rows
-pub(crate) const INVALID_DID: DID = -1;
+/// The dictionary index to us for NULL rows
+///
+/// In theory this can be any value as the [Arrow Spec] says to ignore
+/// the dictionary key for null slots:
+///
+/// ```text
+/// > Array slots which are null are not required to have a particular value;
+/// > any “masked” memory can have any value and need not be zeroed, though
+/// > implementations frequently choose to zero memory for null values.
+/// ```
+///
+/// In practice, we have found several bugs, such as
+/// <https://github.com/apache/arrow-rs/issues/4788> where the kernels
+/// do not ignore null values correctly, which leads to a hard to
+/// track down issue in IOx.
+///
+/// Thus, use a valid index (0) for NULLs to mask such bugs so IOx is
+/// less likely to hit such issues. Instead we should have proper
+/// coverage in arrow-rs. See
+/// <https://github.com/apache/arrow-rs/issues/4733#issuecomment-1710141845>
+///
+/// [Arrow Spec]: https://arrow.apache.org/docs/format/Columnar.html#validity-bitmaps
+pub(crate) const INVALID_DID: DID = 0;
 
 /// The type of the dictionary used
 type Dictionary = arrow_util::dictionary::StringDictionary<DID>;
