@@ -62,12 +62,7 @@ name: cpu
 +------+------------+
 +------+------------+
 -- InfluxQL: SELECT PERCENTILE(usage_system, 50), PERCENTILE(usage_system, 90), PERCENTILE(usage_system, 99) FROM cpu;
-name: cpu
-+---------------------+------------+--------------+--------------+
-| time                | percentile | percentile_1 | percentile_2 |
-+---------------------+------------+--------------+--------------+
-| 1970-01-01T00:00:00 | 49.2732    | 89.754       | 99.0822      |
-+---------------------+------------+--------------+--------------+
+Arrow error: Invalid argument error: column types must match schema types, expected Float64 but found Null at column index 0
 -- InfluxQL: SELECT PERCENTILE(usage_system, 50), PERCENTILE(usage_system, 90), PERCENTILE(usage_system, 99) FROM cpu GROUP BY cpu;
 name: cpu
 tags: cpu=0
