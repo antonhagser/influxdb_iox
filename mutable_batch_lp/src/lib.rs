@@ -376,6 +376,55 @@ mod tests {
         );
     }
 
+    // Demonstrate the current LineConverter API
+    #[test]
+    fn test_converts_until_bad_line() {
+        let lp = r#"cpu,tag1=v1,tag2=v2 val=2i 0
+        cpu,tag1=v4,tag2=v1 val=2i 0
+        mem,tag1=v2 ival=3i 0
+        ,tag2=v2 val=3i 1
+        cpu,tag1=v1,tag2=v2 fval=2.0
+        mem,tag1=v5 ival=2i 1
+        "#;
+
+        let mut converter = LinesConverter::new(5);
+        let result = converter.write_lp(lp);
+        assert_matches!(
+            result,
+            Err(e) if matches!(e, Error::LineProtocol { .. }),
+            "expected an error returned from write_lp(), but found {:?}", result
+        );
+        let (batches, _) = converter.finish().unwrap();
+        assert_eq!(
+            batches.len(),
+            2,
+            "expected batches were written, up until error"
+        );
+
+        assert_batches_eq!(
+            &[
+                "+------+------+----------------------+-----+",
+                "| tag1 | tag2 | time                 | val |",
+                "+------+------+----------------------+-----+",
+                "| v1   | v2   | 1970-01-01T00:00:00Z | 2   |",
+                "| v4   | v1   | 1970-01-01T00:00:00Z | 2   |",
+                "+------+------+----------------------+-----+",
+            ],
+            &[batches["cpu"].to_arrow(Projection::All).unwrap()]
+        );
+
+        assert_batches_eq!(
+            &[
+                "+------+------+----------------------+",
+                "| ival | tag1 | time                 |",
+                "+------+------+----------------------+",
+                "| 3    | v2   | 1970-01-01T00:00:00Z |",
+                "+------+------+----------------------+",
+            ],
+            &[batches["mem"].to_arrow(Projection::All).unwrap()]
+        );
+    }
+
     #[test]
     fn test_nulls_string_and_float() {
         let lp = r#"m f0="cat" 1639612800000000000
