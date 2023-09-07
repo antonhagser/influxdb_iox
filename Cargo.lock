@@ -1376,7 +1376,7 @@ dependencies = [
 [[package]]
 name = "datafusion"
 version = "30.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=3ea870cf0995a86b5297a92be5d5432577aefabe#3ea870cf0995a86b5297a92be5d5432577aefabe"
+source = "git+https://github.com/synnada-ai/arrow-datafusion.git?rev=3fbd42166beb4cf98d14b13ec5863b32c08fda00#3fbd42166beb4cf98d14b13ec5863b32c08fda00"
 dependencies = [
  "ahash",
  "arrow",
@@ -1422,7 +1422,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common"
 version = "30.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=3ea870cf0995a86b5297a92be5d5432577aefabe#3ea870cf0995a86b5297a92be5d5432577aefabe"
+source = "git+https://github.com/synnada-ai/arrow-datafusion.git?rev=3fbd42166beb4cf98d14b13ec5863b32c08fda00#3fbd42166beb4cf98d14b13ec5863b32c08fda00"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -1445,7 +1445,7 @@ dependencies = [
 [[package]]
 name = "datafusion-execution"
 version = "30.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=3ea870cf0995a86b5297a92be5d5432577aefabe#3ea870cf0995a86b5297a92be5d5432577aefabe"
+source = "git+https://github.com/synnada-ai/arrow-datafusion.git?rev=3fbd42166beb4cf98d14b13ec5863b32c08fda00#3fbd42166beb4cf98d14b13ec5863b32c08fda00"
 dependencies = [
  "arrow",
  "dashmap",
@@ -1464,7 +1464,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr"
 version = "30.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=3ea870cf0995a86b5297a92be5d5432577aefabe#3ea870cf0995a86b5297a92be5d5432577aefabe"
+source = "git+https://github.com/synnada-ai/arrow-datafusion.git?rev=3fbd42166beb4cf98d14b13ec5863b32c08fda00#3fbd42166beb4cf98d14b13ec5863b32c08fda00"
 dependencies = [
  "ahash",
  "arrow",
@@ -1477,7 +1477,7 @@ dependencies = [
 [[package]]
 name = "datafusion-optimizer"
 version = "30.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=3ea870cf0995a86b5297a92be5d5432577aefabe#3ea870cf0995a86b5297a92be5d5432577aefabe"
+source = "git+https://github.com/synnada-ai/arrow-datafusion.git?rev=3fbd42166beb4cf98d14b13ec5863b32c08fda00#3fbd42166beb4cf98d14b13ec5863b32c08fda00"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1494,7 +1494,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr"
 version = "30.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=3ea870cf0995a86b5297a92be5d5432577aefabe#3ea870cf0995a86b5297a92be5d5432577aefabe"
+source = "git+https://github.com/synnada-ai/arrow-datafusion.git?rev=3fbd42166beb4cf98d14b13ec5863b32c08fda00#3fbd42166beb4cf98d14b13ec5863b32c08fda00"
 dependencies = [
  "ahash",
  "arrow",
@@ -1527,7 +1527,7 @@ dependencies = [
 [[package]]
 name = "datafusion-proto"
 version = "30.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=3ea870cf0995a86b5297a92be5d5432577aefabe#3ea870cf0995a86b5297a92be5d5432577aefabe"
+source = "git+https://github.com/synnada-ai/arrow-datafusion.git?rev=3fbd42166beb4cf98d14b13ec5863b32c08fda00#3fbd42166beb4cf98d14b13ec5863b32c08fda00"
 dependencies = [
  "arrow",
  "chrono",
@@ -1541,7 +1541,7 @@ dependencies = [
 [[package]]
 name = "datafusion-sql"
 version = "30.0.0"
-source = "git+https://github.com/apache/arrow-datafusion.git?rev=3ea870cf0995a86b5297a92be5d5432577aefabe#3ea870cf0995a86b5297a92be5d5432577aefabe"
+source = "git+https://github.com/synnada-ai/arrow-datafusion.git?rev=3fbd42166beb4cf98d14b13ec5863b32c08fda00#3fbd42166beb4cf98d14b13ec5863b32c08fda00"
 dependencies = [
  "arrow",
  "arrow-schema",
