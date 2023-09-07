@@ -47,6 +47,56 @@ pub async fn test_json_errors() {
     .await;
 }
 
+#[tokio::test]
+pub async fn test_writes_are_atomic() {
+    let database_url = maybe_skip_integration!();
+
+    let test_config = TestConfig::new_all_in_one(Some(database_url));
+    let mut cluster = MiniCluster::create_all_in_one(test_config).await;
+
+    StepTest::new(
+        &mut cluster,
+        vec![
+            Step::WriteLineProtocol(
+                "table_atomic,tag1=A,tag2=good val=42i 123456\n\
+                table_atomic,tag1=A,tag2=good val=43i 123457"
+                    .into(),
+            ),
+            Step::Query {
+                sql: "select * from table_atomic".into(),
+                expected: vec![
+                    "+------+------+--------------------------------+-----+",
+                    "| tag1 | tag2 | time                           | val |",
+                    "+------+------+--------------------------------+-----+",
+                    "| A    | good | 1970-01-01T00:00:00.000123456Z | 42  |",
+                    "| A    | good | 1970-01-01T00:00:00.000123457Z | 43  |",
+                    "+------+------+--------------------------------+-----+",
+                ],
+            },
+            Step::WriteLineProtocolExpectingError {
+                line_protocol: "table_atomic,tag1=B,tag2=good val=44i 123458\n\
+                     ,tag1=B,tag2=bad val=45i 123459\n\
+                     table_atomic,tag1=B,tag2=good val=46i 123460"
+                    .into(),
+                expected_error_code: StatusCode::BAD_REQUEST,
+            },
+            Step::Query {
+                sql: "select * from table_atomic".into(),
+                expected: vec![
+                    "+------+------+--------------------------------+-----+",
+                    "| tag1 | tag2 | time                           | val |",
+                    "+------+------+--------------------------------+-----+",
+                    "| A    | good | 1970-01-01T00:00:00.000123456Z | 42  |",
+                    "| A    | good | 1970-01-01T00:00:00.000123457Z | 43  |",
+                    "+------+------+--------------------------------+-----+",
+                ],
+            },
+        ],
+    )
+    .run()
+    .await;
+}
+
 async fn read_body<T, E>(mut body: T) -> Vec<u8>
 where
     T: Body<Data = bytes::Bytes, Error = E> + Unpin,
