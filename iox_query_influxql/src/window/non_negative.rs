@@ -1,6 +1,5 @@
 use arrow::array::Array;
-use arrow::compute::kernels::cmp::lt;
-use arrow::compute::nullif;
+use arrow::compute::{lt_dyn_scalar, nullif};
 use datafusion::common::{Result, ScalarValue};
 use datafusion::logical_expr::window_state::WindowAggState;
 use datafusion::logical_expr::PartitionEvaluator;
@@ -36,8 +35,7 @@ impl PartitionEvaluator for NonNegative {
         num_rows: usize,
     ) -> Result<Arc<dyn Array>> {
         let array = self.partition_evaluator.evaluate_all(values, num_rows)?;
-        let zero = ScalarValue::new_zero(array.data_type())?;
-        let predicate = lt(&array, &zero.to_scalar())?;
+        let predicate = lt_dyn_scalar(&array, 0)?;
         Ok(nullif(&array, &predicate)?)
     }
 
@@ -58,9 +56,7 @@ impl PartitionEvaluator for NonNegative {
         let array = self
             .partition_evaluator
             .evaluate_all_with_rank(num_rows, ranks_in_partition)?;
-
-        let zero = ScalarValue::new_zero(array.data_type())?;
-        let predicate = lt(&array, &zero.to_scalar())?;
+        let predicate = lt_dyn_scalar(&array, 0)?;
         Ok(nullif(&array, &predicate)?)
     }
 

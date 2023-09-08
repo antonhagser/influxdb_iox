@@ -183,11 +183,8 @@ impl SeriesSetConverter {
                 b.append_value(false);
                 b.finish()
             },
-            &arrow::compute::kernels::cmp::neq(
-                &col.slice(0, col.len() - 1),
-                &col.slice(1, col.len() - 1),
-            )
-            .expect("cmp"),
+            &compute::neq_dyn(&col.slice(0, col.len() - 1), &col.slice(1, col.len() - 1))
+                .expect("cmp"),
         ])
         .expect("concat");
 
