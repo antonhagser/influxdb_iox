@@ -650,12 +650,6 @@ where
 #[allow(missing_copy_implementations, missing_docs)]
 #[snafu(visibility(pub(crate)))]
 pub enum UpsertSchemaError {
-    #[snafu(display("Could not get namespace `{name}`: {source}"))]
-    GetNamespace { name: String, source: Error },
-
-    #[snafu(display("Namespace `{name}` not found"))]
-    NamespaceNotFound { name: String },
-
     #[snafu(display("Could not create table `{table}` in namespace `{namespace}`: {source}"))]
     TableLoadOrCreate {
         table: String,
@@ -718,39 +712,28 @@ pub enum UpsertSchemaError {
 
 /// Upserts the schema for one particular table in a namespace.
 pub async fn upsert_schema_by_namespace_and_table<R>(
-    name: &str,
+    namespace: &Namespace,
     table_name: &str,
     // This is a `BTreeMap` to get a consistent ordering and consistent failures if multiple
     // columns have problems.
     upsert_columns: BTreeMap<String, ColumnType>,
+    partition_template: TablePartitionTemplateOverride,
     repos: &mut R,
-    deleted: SoftDeletedRows,
 ) -> Result<NamespaceSchema, UpsertSchemaError>
 where
     R: RepoCollection + ?Sized,
 {
-    let namespace = repos
-        .namespaces()
-        .get_by_name(name, deleted)
-        .await
-        .context(GetNamespaceSnafu { name })?
-        .context(NamespaceNotFoundSnafu { name })?;
-
-    let partition_template =
-        TablePartitionTemplateOverride::try_new(None, &namespace.partition_template)
-            .expect("no table partition template; namespace partition template has been validated");
-
     let mut table_schema =
         crate::table_load_or_create(repos, namespace.id, partition_template, table_name)
             .await
             .map_err(|e| match e {
                 Error::TableCreateLimitError { .. } => UpsertSchemaError::TableLimit {
                     table: table_name.to_string(),
-                    namespace: name.to_string(),
+                    namespace: namespace.name.to_string(),
                 },
                 _ => UpsertSchemaError::TableLoadOrCreate {
                     table: table_name.to_string(),
-                    namespace: name.to_string(),
+                    namespace: namespace.name.to_string(),
                     source: e,
                 },
             })?;
@@ -761,7 +744,7 @@ where
         .await
         .context(GetColumnsSnafu {
             table: table_name,
-            namespace: name,
+            namespace: namespace.name.clone(),
         })?;
     table_schema.columns = existing_columns.clone();
 
@@ -791,7 +774,7 @@ where
     if columns_were_added_in_this_batch && column_limit_exceeded {
         return Err(UpsertSchemaError::ColumnLimit {
             table: table_name.to_string(),
-            namespace: name.to_string(),
+            namespace: namespace.name.to_string(),
             merged_column_count,
             existing_column_count,
             max_columns_per_table,
@@ -838,7 +821,7 @@ where
             .await
             .context(UpsertColumnsSnafu {
                 table: table_name,
-                namespace: name,
+                namespace: namespace.name.clone(),
             })?
             .into_iter()
             .for_each(|c| table_schema.add_column(c));

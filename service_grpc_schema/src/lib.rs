@@ -18,6 +18,7 @@ use workspace_hack as _;
 
 use std::{collections::BTreeMap, ops::DerefMut, sync::Arc};
 
+use data_types::partition_template::TablePartitionTemplateOverride;
 use generated_types::influxdata::iox::schema::v1::*;
 use iox_catalog::interface::{
     get_schema_by_name, get_schema_by_namespace_and_table, upsert_schema_by_namespace_and_table,
@@ -86,8 +87,14 @@ impl schema_service_server::SchemaService for SchemaService {
         let mut repos = self.catalog.repositories().await;
         let req = request.into_inner();
 
-        let columns = req
-            .columns
+        let UpsertSchemaRequest {
+            namespace,
+            table,
+            columns,
+            partition_template,
+        } = req;
+
+        let columns = columns
             .into_iter()
             .map(|(name, column_type)| {
                 let column_type: data_types::ColumnType =
@@ -109,16 +116,33 @@ impl schema_service_server::SchemaService for SchemaService {
             })
             .collect::<Result<BTreeMap<_, _>, Status>>()?;
 
+        let namespace_in_catalog = repos
+            .namespaces()
+            .get_by_name(&namespace, SoftDeletedRows::ExcludeDeleted)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?
+            .ok_or_else(|| Status::not_found(format!("Namespace `{namespace}` not found")))?;
+
+        let partition_template = TablePartitionTemplateOverride::try_new(
+            partition_template,
+            &namespace_in_catalog.partition_template,
+        )
+        .map_err(|source| {
+            Status::invalid_argument(format!(
+                "Could not create TablePartitionTemplateOverride for table `{table}` \
+                in namespace `{namespace}`: {source}"
+            ))
+        })?;
+
         let schema = upsert_schema_by_namespace_and_table(
-            &req.namespace,
-            &req.table,
+            &namespace_in_catalog,
+            &table,
             columns,
+            partition_template,
             repos.deref_mut(),
-            SoftDeletedRows::ExcludeDeleted,
         )
         .await
         .map_err(|e| match e {
-            UpsertSchemaError::NamespaceNotFound { .. } => Status::not_found(e.to_string()),
             UpsertSchemaError::ColumnTypeConflict { .. } => Status::invalid_argument(e.to_string()),
             UpsertSchemaError::TableLimit { .. } | UpsertSchemaError::ColumnLimit { .. } => {
                 Status::failed_precondition(e.to_string())
@@ -136,6 +160,7 @@ impl schema_service_server::SchemaService for SchemaService {
 fn schema_to_proto(schema: Arc<data_types::NamespaceSchema>) -> NamespaceSchema {
     NamespaceSchema {
         id: schema.id.get(),
+        partition_template: schema.partition_template.as_proto().cloned(),
         tables: schema
             .tables
             .iter()
@@ -144,6 +169,7 @@ fn schema_to_proto(schema: Arc<data_types::NamespaceSchema>) -> NamespaceSchema 
                     name.clone(),
                     TableSchema {
                         id: t.id.get(),
+                        partition_template: t.partition_template.as_proto().cloned(),
                         columns: t
                             .columns
                             .iter()
@@ -168,7 +194,10 @@ fn schema_to_proto(schema: Arc<data_types::NamespaceSchema>) -> NamespaceSchema 
 mod tests {
     use super::*;
     use data_types::{ColumnType, MaxColumnsPerTable, MaxTables};
-    use generated_types::influxdata::iox::schema::v1::schema_service_server::SchemaService;
+    use generated_types::influxdata::iox::{
+        partition_template::v1::{template_part, PartitionTemplate, TemplatePart},
+        schema::v1::schema_service_server::SchemaService,
+    };
     use iox_catalog::{
         mem::MemCatalog,
         test_helpers::{arbitrary_namespace, arbitrary_table},
@@ -279,6 +308,7 @@ mod tests {
                 namespace: "namespace_does_not_exist".to_string(),
                 table: "arbitrary".to_string(),
                 columns: [("temperature".to_string(), ColumnType::I64 as i32)].into(),
+                partition_template: None,
             };
             let tonic_status = grpc.upsert_schema(Request::new(request)).await.unwrap_err();
             assert_eq!(tonic_status.code(), Code::NotFound);
@@ -310,6 +340,7 @@ mod tests {
                 namespace: namespace.to_string(),
                 table: table.to_string(),
                 columns: columns.clone(),
+                partition_template: None,
             };
             let tonic_response = grpc.upsert_schema(Request::new(request)).await.unwrap();
             let response = tonic_response.into_inner();
@@ -323,6 +354,118 @@ mod tests {
                 schema.tables.get(table).unwrap().columns.keys().collect();
             column_names.sort();
             assert_eq!(column_names, ["temperature", "time"]);
+        }
+
+        #[tokio::test]
+        async fn new_table_with_partition_template() {
+            let namespace = "namespace_schema_upsert_new_partition_template";
+            let table = "table_schema_upsert_new_partition_template";
+            let columns: BTreeMap<_, _> = [
+                ("temperature".to_string(), ColumnType::I64 as i32),
+                ("region".to_string(), ColumnType::Tag as i32),
+            ]
+            .into();
+            let partition_template = PartitionTemplate {
+                parts: vec![
+                    TemplatePart {
+                        // Tag *not* mentioned in the columns to insert
+                        part: Some(template_part::Part::TagValue("color".into())),
+                    },
+                    TemplatePart {
+                        // Tag *mentioned* in the columns to insert
+                        part: Some(template_part::Part::TagValue("region".into())),
+                    },
+                    TemplatePart {
+                        part: Some(template_part::Part::TimeFormat("%Y".into())),
+                    },
+                ],
+            };
+
+            // create a catalog and populate it with some test data, then drop the write lock
+            let catalog = {
+                let metrics = Arc::new(metric::Registry::default());
+                let catalog = Arc::new(MemCatalog::new(metrics));
+                let mut repos = catalog.repositories().await;
+                arbitrary_namespace(&mut *repos, namespace).await;
+                catalog
+            };
+
+            let grpc = super::super::SchemaService::new(catalog);
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: columns.clone(),
+                partition_template: Some(partition_template.clone()),
+            };
+            let tonic_response = grpc.upsert_schema(Request::new(request)).await.unwrap();
+            let response = tonic_response.into_inner();
+            let schema = response.schema.unwrap();
+
+            let mut table_names: Vec<_> = schema.tables.keys().collect();
+            table_names.sort();
+            assert_eq!(table_names, [table]);
+
+            let schema_table = schema.tables.get(table).unwrap();
+            assert_eq!(schema_table.partition_template, Some(partition_template));
+
+            let mut column_names: Vec<_> = schema_table.columns.keys().collect();
+            column_names.sort();
+            // The "color" tag only used in the partition template gets created too
+            assert_eq!(column_names, ["color", "region", "temperature", "time"]);
+        }
+
+        #[tokio::test]
+        async fn invalid_partition_template_fails() {
+            let namespace = "namespace_schema_upsert_new_partition_template";
+            let table = "table_schema_upsert_new_partition_template";
+            let columns: BTreeMap<_, _> = [
+                ("temperature".to_string(), ColumnType::I64 as i32),
+                ("region".to_string(), ColumnType::Tag as i32),
+            ]
+            .into();
+            let invalid_partition_template = PartitionTemplate { parts: vec![] };
+
+            // create a catalog and populate it with some test data, then drop the write lock
+            let catalog = {
+                let metrics = Arc::new(metric::Registry::default());
+                let catalog = Arc::new(MemCatalog::new(metrics));
+                let mut repos = catalog.repositories().await;
+                arbitrary_namespace(&mut *repos, namespace).await;
+                catalog
+            };
+
+            let grpc = super::super::SchemaService::new(catalog);
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: columns.clone(),
+                partition_template: Some(invalid_partition_template.clone()),
+            };
+            let tonic_status = grpc.upsert_schema(Request::new(request)).await.unwrap_err();
+            assert_eq!(tonic_status.code(), Code::InvalidArgument);
+            assert_eq!(
+                tonic_status.message(),
+                "Could not create TablePartitionTemplateOverride for table \
+                `table_schema_upsert_new_partition_template` in namespace \
+                `namespace_schema_upsert_new_partition_template`: \
+                Custom partition template must have at least one part"
+            );
+
+            let request = GetSchemaRequest {
+                namespace: namespace.to_string(),
+                table: None,
+            };
+            let tonic_response = grpc.get_schema(Request::new(request)).await.unwrap();
+            let response = tonic_response.into_inner();
+            let schema = response.schema.unwrap();
+
+            let table_names: Vec<_> = schema.tables.keys().collect();
+            assert!(
+                table_names.is_empty(),
+                "Expected no tables to be created; got {table_names:?}"
+            );
         }
 
         #[tokio::test]
@@ -346,6 +489,7 @@ mod tests {
                 namespace: namespace.to_string(),
                 table: table.to_string(),
                 columns: columns.clone(),
+                partition_template: None,
             };
             let tonic_response = grpc.upsert_schema(Request::new(request)).await.unwrap();
             let response = tonic_response.into_inner();
@@ -405,6 +549,7 @@ mod tests {
                 namespace: namespace.to_string(),
                 table: table.to_string(),
                 columns: upsert_columns.clone(),
+                partition_template: None,
             };
             let tonic_response = grpc.upsert_schema(Request::new(request)).await.unwrap();
             let response = tonic_response.into_inner();
@@ -416,6 +561,76 @@ mod tests {
 
             let mut column_names: Vec<_> =
                 schema.tables.get(table).unwrap().columns.keys().collect();
+            column_names.sort();
+            assert_eq!(column_names, ["name", "region", "time"]);
+        }
+
+        #[tokio::test]
+        async fn existing_table_upsert_partition_template_specified_gets_ignored() {
+            let namespace = "namespace_schema_upsert_existing_partition_template";
+            let table = "table_schema_upsert_existing_partition_template";
+
+            let existing_columns: BTreeMap<_, _> = [
+                ("name".to_string(), ColumnType::String),
+                ("time".to_string(), ColumnType::Time),
+            ]
+            .into();
+
+            let upsert_columns: BTreeMap<_, _> = [
+                // One new column
+                ("region".to_string(), ColumnType::Tag as i32),
+                // One existing column
+                ("name".to_string(), ColumnType::String as i32),
+                // no time column, but that always gets created
+            ]
+            .into();
+
+            let partition_template = PartitionTemplate {
+                parts: vec![TemplatePart {
+                    part: Some(template_part::Part::TimeFormat("%Y".into())),
+                }],
+            };
+
+            // create a catalog and populate it with some test data, then drop the write lock
+            let catalog = {
+                let metrics = Arc::new(metric::Registry::default());
+                let catalog = Arc::new(MemCatalog::new(metrics));
+                let mut repos = catalog.repositories().await;
+                let namespace = arbitrary_namespace(&mut *repos, namespace).await;
+
+                let table = arbitrary_table(&mut *repos, table, &namespace).await;
+                for (existing_name, existing_type) in existing_columns {
+                    repos
+                        .columns()
+                        .create_or_get(&existing_name, table.id, existing_type)
+                        .await
+                        .unwrap();
+                }
+                catalog
+            };
+
+            // create grpc schema service
+            let grpc = super::super::SchemaService::new(catalog);
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: upsert_columns.clone(),
+                partition_template: Some(partition_template),
+            };
+            let tonic_response = grpc.upsert_schema(Request::new(request)).await.unwrap();
+            let response = tonic_response.into_inner();
+            let schema = response.schema.unwrap();
+
+            let mut table_names: Vec<_> = schema.tables.keys().collect();
+            table_names.sort();
+            assert_eq!(table_names, [table]);
+
+            let schema_table = schema.tables.get(table).unwrap();
+            // The partition template gets ignored because the table already existed
+            assert_eq!(schema_table.partition_template, None);
+
+            let mut column_names: Vec<_> = schema_table.columns.keys().collect();
             column_names.sort();
             assert_eq!(column_names, ["name", "region", "time"]);
         }
@@ -466,6 +681,7 @@ mod tests {
                 namespace: namespace.to_string(),
                 table: table.to_string(),
                 columns: upsert_columns.clone(),
+                partition_template: None,
             };
 
             let tonic_status = grpc.upsert_schema(Request::new(request)).await.unwrap_err();
@@ -543,6 +759,7 @@ mod tests {
                 namespace: namespace.to_string(),
                 table: table.to_string(),
                 columns: upsert_columns.clone(),
+                partition_template: None,
             };
 
             let tonic_status = grpc.upsert_schema(Request::new(request)).await.unwrap_err();
@@ -603,6 +820,7 @@ mod tests {
                 namespace: namespace.to_string(),
                 table: upsert_table.to_string(),
                 columns: Default::default(),
+                partition_template: None,
             };
 
             let tonic_status = grpc.upsert_schema(Request::new(request)).await.unwrap_err();
@@ -675,6 +893,7 @@ mod tests {
                 namespace: namespace.to_string(),
                 table: table.to_string(),
                 columns: upsert_columns.clone(),
+                partition_template: None,
             };
 
             let tonic_status = grpc.upsert_schema(Request::new(request)).await.unwrap_err();

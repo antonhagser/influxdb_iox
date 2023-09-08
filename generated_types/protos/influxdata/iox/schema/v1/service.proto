@@ -2,6 +2,8 @@ syntax = "proto3";
 package influxdata.iox.schema.v1;
 option go_package = "github.com/influxdata/iox/schema/v1";
 
+import "influxdata/iox/partition_template/v1/template.proto";
+
 service SchemaService {
   // Get the schema for a namespace and, optionally, a table within that namespace
   rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse);
@@ -32,6 +34,13 @@ message UpsertSchemaRequest {
 
   // Map of Column Name -> Column Type to upsert into this table's schema
   map<string, ColumnSchema.ColumnType> columns = 3;
+
+  // Partitioning scheme to use for writes to this table. If not specified, the
+  // namespace's partition template will be used.
+  //
+  // Any use of "tag_value" template parts will cause the named column schema to
+  // be set as "tag" as part of this request.
+  optional influxdata.iox.partition_template.v1.PartitionTemplate partition_template = 4;
 }
 
 message UpsertSchemaResponse {
@@ -53,6 +62,10 @@ message NamespaceSchema {
   int64 id = 1;
   // Map of Table Name -> Table Schema
   map<string, TableSchema> tables = 4;
+
+  // The default partitioning scheme used for any new tables that are created
+  // in this namespace, if any.
+  optional influxdata.iox.partition_template.v1.PartitionTemplate partition_template = 6;
 }
 
 message TableSchema {
@@ -60,6 +73,9 @@ message TableSchema {
   int64 id = 1;
   // Map of Column Name -> Column Schema
   map<string, ColumnSchema> columns = 2;
+
+  // The partitioning scheme applied to writes for this table
+  influxdata.iox.partition_template.v1.PartitionTemplate partition_template = 3;
 }
 
 message ColumnSchema {
