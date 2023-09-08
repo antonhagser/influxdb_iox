@@ -21,8 +21,8 @@ use workspace_hack as _;
 
 use crate::interface::{ColumnTypeMismatchSnafu, Error, RepoCollection, Result};
 use data_types::{
-    partition_template::{NamespacePartitionTemplateOverride, TablePartitionTemplateOverride},
-    ColumnType, NamespaceId, NamespaceSchema, Partition, TableSchema, TransitionPartitionId,
+    partition_template::TablePartitionTemplateOverride, ColumnType, NamespaceId, NamespaceSchema,
+    Partition, TableSchema, TransitionPartitionId,
 };
 use mutable_batch::MutableBatch;
 use std::{borrow::Cow, collections::HashMap};
@@ -183,9 +183,18 @@ where
             //
             // Attempt to load an existing table from the catalog or create a new table in the
             // catalog to populate the cache.
+
+            // This table is being created implicitly by this write, so there's no
+            // possibility of a user-supplied partition template here, which is why there's
+            // a hardcoded `None`. If there is a namespace template, it must be valid because
+            // validity was checked during its creation, so that's why there's an `expect`.
+            let partition_template =
+                TablePartitionTemplateOverride::try_new(None, &schema.partition_template).expect(
+                    "no table partition template; namespace partition template has been validated",
+                );
+
             let table =
-                table_load_or_create(repos, schema.id, &schema.partition_template, table_name)
-                    .await?;
+                table_load_or_create(repos, schema.id, partition_template, table_name).await?;
 
             assert!(schema
                 .to_mut()
@@ -263,7 +272,7 @@ where
 async fn table_load_or_create<R>(
     repos: &mut R,
     namespace_id: NamespaceId,
-    namespace_partition_template: &NamespacePartitionTemplateOverride,
+    partition_template: TablePartitionTemplateOverride,
     table_name: &str,
 ) -> Result<TableSchema>
 where
@@ -282,16 +291,7 @@ where
             // from the catalog for the record that should now exist.
             let create_result = repos
                 .tables()
-                .create(
-                    table_name,
-                    // This table is being created implicitly by this write, so there's no
-                    // possibility of a user-supplied partition template here, which is why there's
-                    // a hardcoded `None`. If there is a namespace template, it must be valid because
-                    // validity was checked during its creation, so that's why there's an `expect`.
-                    TablePartitionTemplateOverride::try_new(None, namespace_partition_template)
-                        .expect("no table partition template; namespace partition template has been validated"),
-                    namespace_id,
-                )
+                .create(table_name, partition_template, namespace_id)
                 .await;
             if let Err(Error::TableNameExists { .. }) = create_result {
                 repos

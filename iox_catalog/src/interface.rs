@@ -736,24 +736,24 @@ where
         .context(GetNamespaceSnafu { name })?
         .context(NamespaceNotFoundSnafu { name })?;
 
-    let mut table_schema = crate::table_load_or_create(
-        repos,
-        namespace.id,
-        &namespace.partition_template,
-        table_name,
-    )
-    .await
-    .map_err(|e| match e {
-        Error::TableCreateLimitError { .. } => UpsertSchemaError::TableLimit {
-            table: table_name.to_string(),
-            namespace: name.to_string(),
-        },
-        _ => UpsertSchemaError::TableLoadOrCreate {
-            table: table_name.to_string(),
-            namespace: name.to_string(),
-            source: e,
-        },
-    })?;
+    let partition_template =
+        TablePartitionTemplateOverride::try_new(None, &namespace.partition_template)
+            .expect("no table partition template; namespace partition template has been validated");
+
+    let mut table_schema =
+        crate::table_load_or_create(repos, namespace.id, partition_template, table_name)
+            .await
+            .map_err(|e| match e {
+                Error::TableCreateLimitError { .. } => UpsertSchemaError::TableLimit {
+                    table: table_name.to_string(),
+                    namespace: name.to_string(),
+                },
+                _ => UpsertSchemaError::TableLoadOrCreate {
+                    table: table_name.to_string(),
+                    namespace: name.to_string(),
+                    source: e,
+                },
+            })?;
 
     // table_load_or_create always adds the time column, which we'll fetch again here, so reset
     // the table schema's columns to avoid adding the time column twice.
