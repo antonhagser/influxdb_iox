@@ -1389,8 +1389,7 @@ mod tests {
                 line: 42,
             }),
             "failed to parse line protocol: \
-            error writing line 42: \
-            the tag 'host' is specified more than once with conflicting values",
+            error writing line 42: the tag 'host' is specified more than once with conflicting values",
         ),
 
         (
@@ -1401,8 +1400,7 @@ mod tests {
                 line: 42,
             }),
             "failed to parse line protocol: \
-            error writing line 42: \
-            the field 'bananas' is specified more than once with conflicting types",
+            error writing line 42: the field 'bananas' is specified more than once with conflicting types",
         ),
 
         (
