@@ -354,11 +354,11 @@ where
         converter.set_timestamp_base(write_info.precision.timestamp_base());
         let (batches, stats) = match converter.write_lp(body).and_then(|_| converter.finish()) {
             Ok(v) => v,
-            Err(mutable_batch_lp::Error::EmptyPayload) => {
+            Err(e) if matches!(e, mutable_batch_lp::Error::EmptyPayload) => {
                 debug!("nothing to write");
                 return Ok(());
             }
-            Err(e) => return Err(Error::ParseLineProtocol(e)),
+            Err(line_errors) => return Err(Error::ParseLineProtocol(line_errors)),
         };
 
         let num_tables = batches.len();
@@ -1381,36 +1381,43 @@ mod tests {
         ),
 
         (
-            ParseLineProtocol(mutable_batch_lp::Error::LineProtocol {
-                source: influxdb_line_protocol::Error::FieldSetMissing,
-                line: 42,
+            ParseLineProtocol(mutable_batch_lp::Error::PerLine {
+                lines: vec![mutable_batch_lp::LineError::LineProtocol {
+                    source: influxdb_line_protocol::Error::FieldSetMissing,
+                    line: 42,
+                }]
             }),
             "failed to parse line protocol: \
-            error parsing line 42 (1-based): No fields were provided",
+            errors encountered on 1 line:\
+            \nerror parsing line 42 (1-based): No fields were provided",
         ),
 
         (
-            ParseLineProtocol(mutable_batch_lp::Error::Write {
-                source: mutable_batch_lp::LineWriteError::DuplicateTag {
-                    name: "host".into(),
-                },
-                line: 42,
+            ParseLineProtocol(mutable_batch_lp::Error::PerLine {
+                lines: vec![mutable_batch_lp::LineError::Write {
+                    source: mutable_batch_lp::LineWriteError::DuplicateTag {
+                        name: "host".into(),
+                    },
+                    line: 42,
+                }]
             }),
             "failed to parse line protocol: \
-            error writing line 42: \
-            the tag 'host' is specified more than once with conflicting values",
+            errors encountered on 1 line:\
+            \nerror writing line 42 (1-based): the tag 'host' is specified more than once with conflicting values",
         ),
 
         (
-            ParseLineProtocol(mutable_batch_lp::Error::Write {
-                source: mutable_batch_lp::LineWriteError::ConflictedFieldTypes {
-                    name: "bananas".into(),
-                },
-                line: 42,
+            ParseLineProtocol(mutable_batch_lp::Error::PerLine {
+                lines: vec![mutable_batch_lp::LineError::Write {
+                    source: mutable_batch_lp::LineWriteError::ConflictedFieldTypes {
+                        name: "bananas".into(),
+                    },
+                    line: 42,
+                }]
             }),
             "failed to parse line protocol: \
-            error writing line 42: \
-            the field 'bananas' is specified more than once with conflicting types",
+            errors encountered on 1 line:\
+            \nerror writing line 42 (1-based): the field 'bananas' is specified more than once with conflicting types",
         ),
 
         (
@@ -1419,8 +1426,35 @@ mod tests {
         ),
 
         (
-            ParseLineProtocol(mutable_batch_lp::Error::TimestampOverflow),
-            "failed to parse line protocol: timestamp overflows i64",
+            ParseLineProtocol(mutable_batch_lp::Error::PerLine {
+                lines: vec![mutable_batch_lp::LineError::TimestampOverflow { line: 42 }]
+            }),
+            "failed to parse line protocol: \
+            errors encountered on 1 line:\
+            \ntimestamp overflows i64 on line 42 (1-based)",
+        ),
+
+        (
+            ParseLineProtocol(mutable_batch_lp::Error::PerLine {
+                lines: vec![
+                    mutable_batch_lp::LineError::LineProtocol {
+                        source: influxdb_line_protocol::Error::FieldSetMissing,
+                        line: 42,
+                    },
+                    mutable_batch_lp::LineError::TimestampOverflow { line: 43 },
+                    mutable_batch_lp::LineError::Write {
+                        source: mutable_batch_lp::LineWriteError::ConflictedFieldTypes {
+                            name: "bananas".into(),
+                        },
+                        line: 44,
+                    },
+                ]
+            }),
+            "failed to parse line protocol: \
+            errors encountered on 3 lines:\
+            \nerror parsing line 42 (1-based): No fields were provided\
+            \ntimestamp overflows i64 on line 43 (1-based)\
+            \nerror writing line 44 (1-based): the field 'bananas' is specified more than once with conflicting types",
         ),
 
         (

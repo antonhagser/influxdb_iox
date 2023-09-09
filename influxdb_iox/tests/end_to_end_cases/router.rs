@@ -79,7 +79,10 @@ pub async fn test_writes_are_atomic() {
                      table_atomic,tag1=B,tag2=good val=46i 123460"
                     .into(),
                 expected_error_code: StatusCode::BAD_REQUEST,
-                expected_error_message: "failed to parse line protocol: error parsing line 2 (1-based): Invalid measurement was provided".into(),
+                expected_error_message: "failed to parse line protocol: \
+                    errors encountered on 1 line:\
+                    \nerror parsing line 2 (1-based): Invalid measurement was provided"
+                    .to_string(),
                 expected_error_body: Default::default(),
             },
             Step::Query {

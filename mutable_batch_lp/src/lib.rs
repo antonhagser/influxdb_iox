@@ -26,24 +26,50 @@ use mutable_batch::writer::Writer;
 use mutable_batch::MutableBatch;
 use snafu::{ResultExt, Snafu};
 
-/// Error type for line protocol conversion
+const MAXIMUM_RETURNED_ERRORS: usize = 100;
+
+/// Error type for a conversion attempt on a set of line protocol lines
 #[derive(Debug, Snafu)]
 #[allow(missing_docs)]
 pub enum Error {
+    #[snafu(display(
+        "errors encountered on {}{} line{}:\n{}",
+        std::cmp::min(MAXIMUM_RETURNED_ERRORS, lines.len()),
+        if lines.len() > MAXIMUM_RETURNED_ERRORS { "+" } else { "" },
+        if lines.len() > 1 { "s" } else { "" },
+        lines.iter().map(|line| line.to_string()).collect::<Vec<String>>().join("\n")
+    ))]
+    PerLine { lines: Vec<LineError> },
+
+    #[snafu(display("empty write payload"))]
+    EmptyPayload,
+}
+
+/// Errors which occur independently per line
+#[derive(Debug, Snafu)]
+#[allow(missing_docs)]
+pub enum LineError {
     #[snafu(display("error parsing line {} (1-based): {}", line, source))]
     LineProtocol {
         source: influxdb_line_protocol::Error,
         line: usize,
     },
 
-    #[snafu(display("error writing line {}: {}", line, source))]
+    #[snafu(display("error writing line {} (1-based): {}", line, source))]
     Write { source: LineWriteError, line: usize },
 
-    #[snafu(display("empty write payload"))]
-    EmptyPayload,
+    #[snafu(display("timestamp overflows i64 on line {} (1-based)", line))]
+    TimestampOverflow { line: usize },
+}
 
-    #[snafu(display("timestamp overflows i64"))]
-    TimestampOverflow,
+macro_rules! break_or_continue {
+    ($predicate:expr $(,)?) => {
+        if $predicate {
+            break;
+        } else {
+            continue;
+        }
+    };
 }
 
 /// Result type for line protocol conversion
@@ -107,13 +133,38 @@ impl LinesConverter {
     ///     [`mutable_batch::writer::Error::TypeMismatch`]
     ///
     pub fn write_lp(&mut self, lines: &str) -> Result<()> {
+        // TODO: next PR will have this be configurable per request.
+        //
+        // Default will be to `abort_on_line_error`, but with an optional
+        // flag `--reject-data-per-line`.
+        let abort_on_line_error = true;
+
+        let mut errors: Vec<LineError> = Vec::with_capacity(MAXIMUM_RETURNED_ERRORS);
+        let mut add_error = |e: LineError| {
+            if errors.len() < MAXIMUM_RETURNED_ERRORS {
+                errors.push(e);
+            }
+            abort_on_line_error && errors.len() >= MAXIMUM_RETURNED_ERRORS
+        };
+
         for (line_idx, maybe_line) in parse_lines(lines).enumerate() {
-            let mut line = maybe_line.context(LineProtocolSnafu { line: line_idx + 1 })?;
+            let mut line = match maybe_line.context(LineProtocolSnafu { line: line_idx + 1 }) {
+                Ok(line) => line,
+                Err(e) => {
+                    break_or_continue!(add_error(e));
+                }
+            };
 
             if let Some(t) = line.timestamp.as_mut() {
-                *t = t
-                    .checked_mul(self.timestamp_base)
-                    .ok_or(Error::TimestampOverflow)?;
+                let updated_timestamp = match t.checked_mul(self.timestamp_base) {
+                    Some(t) => t,
+                    None => {
+                        break_or_continue!(add_error(LineError::TimestampOverflow {
+                            line: line_idx + 1
+                        }))
+                    }
+                };
+                *t = updated_timestamp;
             }
 
             self.stats.num_lines += 1;
@@ -129,9 +180,16 @@ impl LinesConverter {
 
             // TODO: Reuse writer
             let mut writer = Writer::new(batch, 1);
-            write_line(&mut writer, &line, self.default_time)
-                .context(WriteSnafu { line: line_idx + 1 })?;
-            writer.commit();
+            match write_line(&mut writer, &line, self.default_time)
+                .context(WriteSnafu { line: line_idx + 1 })
+            {
+                Ok(_) => writer.commit(),
+                Err(e) => break_or_continue!(add_error(e)),
+            };
+        }
+
+        if !errors.is_empty() {
+            return Err(Error::PerLine { lines: errors });
         }
         Ok(())
     }
@@ -376,14 +434,14 @@ mod tests {
         );
     }
 
-    // Demonstrate the current LineConverter API
     #[test]
-    fn test_converts_until_bad_line() {
+    fn test_partial_line_conversion() {
         let lp = r#"cpu,tag1=v1,tag2=v2 val=2i 0
         cpu,tag1=v4,tag2=v1 val=2i 0
         mem,tag1=v2 ival=3i 0
         ,tag2=v2 val=3i 1
         cpu,tag1=v1,tag2=v2 fval=2.0
+        bad_line
         mem,tag1=v5 ival=2i 1
         "#;
 
@@ -391,35 +449,38 @@ mod tests {
         let result = converter.write_lp(lp);
         assert_matches!(
             result,
-            Err(e) if matches!(e, Error::LineProtocol { .. }),
+            Err(Error::PerLine { lines }) if matches!(&lines[..], [LineError::LineProtocol { .. }, LineError::LineProtocol { .. }]),
             "expected an error returned from write_lp(), but found {:?}", result
         );
         let (batches, _) = converter.finish().unwrap();
         assert_eq!(
             batches.len(),
             2,
-            "expected batches were written, up until error"
+            "expected both batches are written, instead found {:?}",
+            batches.len(),
         );
 
         assert_batches_eq!(
             &[
-                "+------+------+----------------------+-----+",
-                "| tag1 | tag2 | time                 | val |",
-                "+------+------+----------------------+-----+",
-                "| v1   | v2   | 1970-01-01T00:00:00Z | 2   |",
-                "| v4   | v1   | 1970-01-01T00:00:00Z | 2   |",
-                "+------+------+----------------------+-----+",
+                "+------+------+------+--------------------------------+-----+",
+                "| fval | tag1 | tag2 | time                           | val |",
+                "+------+------+------+--------------------------------+-----+",
+                "|      | v1   | v2   | 1970-01-01T00:00:00Z           | 2   |",
+                "|      | v4   | v1   | 1970-01-01T00:00:00Z           | 2   |",
+                "| 2.0  | v1   | v2   | 1970-01-01T00:00:00.000000005Z |     |",
+                "+------+------+------+--------------------------------+-----+",
             ],
             &[batches["cpu"].to_arrow(Projection::All).unwrap()]
         );
 
         assert_batches_eq!(
             &[
-                "+------+------+----------------------+",
-                "| ival | tag1 | time                 |",
-                "+------+------+----------------------+",
-                "| 3    | v2   | 1970-01-01T00:00:00Z |",
-                "+------+------+----------------------+",
+                "+------+------+--------------------------------+",
+                "| ival | tag1 | time                           |",
+                "+------+------+--------------------------------+",
+                "| 3    | v2   | 1970-01-01T00:00:00Z           |",
+                "| 2    | v5   | 1970-01-01T00:00:00.000000001Z |",
+                "+------+------+--------------------------------+",
             ],
             &[batches["mem"].to_arrow(Projection::All).unwrap()]
         );
@@ -550,13 +611,12 @@ m b=t 1639612800000000000
 
             let err = lines_to_batches(lp, 5).expect_err("type conflicted write should fail");
             assert_matches!(err,
-                Error::Write {
+                Error::PerLine { lines } if matches!(&lines[..],
+                [LineError::Write {
                     source: LineWriteError::ConflictedFieldTypes { name },
                     line: 1
-                }
-            => {
-                assert_eq!(name, "val");
-            });
+                }] if name == "val"
+            ));
         }
 
         #[test]
@@ -565,13 +625,13 @@ m b=t 1639612800000000000
 
             let err = lines_to_batches(lp, 5).expect_err("duplicate tag write should fail");
             assert_matches!(err,
-                Error::Write {
-                    source: LineWriteError::DuplicateTag { name },
-                    line: 1
-                }
-            => {
-                assert_eq!(name, "tag");
-            });
+                Error::PerLine { lines } if matches!(
+                    &lines[..],
+                    [LineError::Write {
+                        source: LineWriteError::DuplicateTag { name },
+                        line: 1
+                    }] if name == "tag"
+            ));
         }
 
         #[test]
@@ -580,13 +640,13 @@ m b=t 1639612800000000000
 
             let err = lines_to_batches(lp, 5).expect_err("duplicate tag write should fail");
             assert_matches!(err,
-                Error::Write {
-                    source: LineWriteError::DuplicateTag { name },
-                    line: 1
-                }
-            => {
-                assert_eq!(name, "tag");
-            });
+                Error::PerLine { lines } if matches!(
+                    &lines[..],
+                    [LineError::Write {
+                        source: LineWriteError::DuplicateTag { name },
+                        line: 1
+                    }] if name == "tag"
+            ));
         }
 
         // NOTE: All tags are strings, so this should never be a type conflict.
@@ -596,13 +656,13 @@ m b=t 1639612800000000000
 
             let err = lines_to_batches(lp, 5).expect_err("type conflicted write should fail");
             assert_matches!(err,
-                Error::Write {
-                    source: LineWriteError::DuplicateTag { name },
-                    line: 1
-                }
-            => {
-                assert_eq!(name, "tag");
-            });
+                Error::PerLine { lines } if matches!(
+                    &lines[..],
+                    [LineError::Write {
+                        source: LineWriteError::DuplicateTag { name },
+                        line: 1
+                    }] if name == "tag"
+            ));
         }
 
         // NOTE: disallowed in IOx but accepted in TSM
@@ -613,13 +673,14 @@ m b=t 1639612800000000000
             let lp = "m1,v=1i v=1i 0";
 
             let err = lines_to_batches(lp, 5).expect_err("type conflicted write should fail");
-            assert_matches!(
-                err,
-                Error::Write {
-                    source: LineWriteError::MutableBatch { .. },
-                    line: 1
-                }
-            );
+            assert_matches!(err,
+                Error::PerLine { lines } if matches!(
+                    &lines[..],
+                    [LineError::Write {
+                        source: LineWriteError::MutableBatch { .. },
+                        line: 1
+                    }]
+            ));
         }
 
         #[test]
@@ -627,13 +688,14 @@ m b=t 1639612800000000000
             let lp = "m1,v=1i v=1.0 0";
 
             let err = lines_to_batches(lp, 5).expect_err("type conflicted write should fail");
-            assert_matches!(
-                err,
-                Error::Write {
-                    source: LineWriteError::MutableBatch { .. },
-                    line: 1
-                }
-            );
+            assert_matches!(err,
+                Error::PerLine { lines } if matches!(
+                    &lines[..],
+                    [LineError::Write {
+                        source: LineWriteError::MutableBatch { .. },
+                        line: 1
+                    }]
+            ));
         }
     }
 }
