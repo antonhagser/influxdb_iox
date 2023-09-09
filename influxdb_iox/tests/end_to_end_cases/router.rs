@@ -80,10 +80,11 @@ pub async fn test_writes_are_atomic() {
                      table_atomic,tag1=B,tag2=bad val=47i 123461000000000000000000000000"
                     .into(),
                 expected_error_code: StatusCode::BAD_REQUEST,
-                expected_error_message:
-                    "failed to parse line protocol: error parsing line 2 (1-based): \
-                    Invalid measurement was provided"
-                        .to_string(),
+                expected_error_message: "failed to parse line protocol: \
+                    errors encountered on 2 lines:\
+                    \nerror parsing line 2 (1-based): Invalid measurement was provided\
+                    \nerror parsing line 4 (1-based): Unable to parse timestamp value '123461000000000000000000000000"
+                    .to_string(),
             },
             Step::Query {
                 sql: "select * from table_atomic".into(),
