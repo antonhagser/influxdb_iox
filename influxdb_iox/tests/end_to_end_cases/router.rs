@@ -79,6 +79,8 @@ pub async fn test_writes_are_atomic() {
                      table_atomic,tag1=B,tag2=good val=46i 123460"
                     .into(),
                 expected_error_code: StatusCode::BAD_REQUEST,
+                expected_error_message: "failed to parse line protocol: error parsing line 2 (1-based): Invalid measurement was provided".into(),
+                expected_error_body: Default::default(),
             },
             Step::Query {
                 sql: "select * from table_atomic".into(),
@@ -140,6 +142,8 @@ async fn authz() {
             Step::WriteLineProtocolExpectingError {
                 line_protocol: line_protocol.clone(),
                 expected_error_code: http::StatusCode::UNAUTHORIZED,
+                expected_error_message: "no token".into(),
+                expected_error_body: Default::default(),
             },
             Step::Custom(Box::new(move |state: &mut StepTestState| {
                 let token = read_token.clone();
