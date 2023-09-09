@@ -1,5 +1,7 @@
 use hyper::{Body, Response, StatusCode};
 use observability_deps::tracing::warn;
+use serde::Serialize;
+use std::collections::HashMap;
 
 /// Constants used in API error codes.
 ///
@@ -101,6 +103,18 @@ pub struct HttpApiError {
 
     /// Human-readable message.
     msg: String,
+
+    /// Optional error body.
+    body: HashMap<String, serde_json::Value>,
+}
+
+/// JSON representation of [`HttpApiError`].
+#[derive(Serialize)]
+struct HttpApiErrorJson {
+    code: String,
+    message: String,
+    #[serde(flatten)]
+    body: HashMap<String, serde_json::Value>,
 }
 
 impl HttpApiError {
@@ -109,14 +123,23 @@ impl HttpApiError {
         Self {
             code: code.into(),
             msg: msg.into(),
+            body: Default::default(),
         }
+    }
+
+    /// Add body to error.
+    pub fn with_body(self, raw: HashMap<String, impl Into<serde_json::Value>>) -> Self {
+        let body: HashMap<String, serde_json::Value> =
+            raw.into_iter().map(|(k, v)| (k, v.into())).collect();
+        Self { body, ..self }
     }
 
     /// Generate response body for this error.
     fn body(&self) -> Body {
-        let json = serde_json::json!({
-            "code": self.code.as_text().to_string(),
-            "message": self.msg.clone(),
+        let json = serde_json::json!(HttpApiErrorJson {
+            code: self.code.as_text().to_string(),
+            message: self.msg.clone(),
+            body: self.body.clone(),
         })
         .to_string();
 
