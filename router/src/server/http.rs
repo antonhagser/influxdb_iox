@@ -2,7 +2,7 @@
 
 pub mod write;
 
-use std::{str::Utf8Error, time::Instant};
+use std::{collections::HashMap as StdHashMap, str::Utf8Error, time::Instant};
 
 use bytes::{Bytes, BytesMut};
 use futures::StreamExt;
@@ -130,6 +130,14 @@ impl Error {
             Error::SingleTenantError(e) => StatusCode::from(e),
             Error::MultiTenantError(e) => StatusCode::from(e),
         }
+    }
+
+    /// Convert the error to an appropriate body to be returned to the end user.
+    ///
+    /// The body will be flattened into the payload. Therefore, an empty body
+    /// means no additional payload (beyond the code and message).
+    pub fn get_body(&self) -> StdHashMap<String, serde_json::Value> {
+        StdHashMap::<String, serde_json::Value>::default()
     }
 }
 
