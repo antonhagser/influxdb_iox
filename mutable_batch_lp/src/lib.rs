@@ -45,6 +45,25 @@ pub enum Error {
     EmptyPayload,
 }
 
+impl Error {
+    /// Convert this error to a message suitable for returning via http
+    pub fn to_message(&self) -> String {
+        match self {
+            Self::PerLine { lines } => format!(
+                "failed to parse line protocol: errors encountered on {}{} line{}",
+                std::cmp::min(MAXIMUM_RETURNED_ERRORS, lines.len()),
+                if lines.len() > MAXIMUM_RETURNED_ERRORS {
+                    "+"
+                } else {
+                    ""
+                },
+                if lines.len() > 1 { "s" } else { "" },
+            ),
+            _ => self.to_string(),
+        }
+    }
+}
+
 /// Errors which occur independently per line
 #[derive(Debug, Snafu)]
 #[allow(missing_docs)]
@@ -60,6 +79,21 @@ pub enum LineError {
 
     #[snafu(display("timestamp overflows i64 on line {} (1-based)", line))]
     TimestampOverflow { line: usize },
+}
+
+impl From<&LineError> for serde_json::Map<String, serde_json::Value> {
+    fn from(e: &LineError) -> Self {
+        let mut res = Self::default();
+        match e {
+            LineError::LineProtocol { source: _, line }
+            | LineError::Write { source: _, line }
+            | LineError::TimestampOverflow { line } => {
+                res.insert("index".to_string(), line.to_owned().into());
+                res.insert("err".to_string(), e.to_string().into());
+            }
+        }
+        res
+    }
 }
 
 macro_rules! break_or_continue {

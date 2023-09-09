@@ -132,12 +132,37 @@ impl Error {
         }
     }
 
+    /// Convert the error to the appropriate message to be returned on an http request.
+    ///
+    /// Note that this is different from the `e.to_string()` which may still be used for stdout.
+    pub fn get_message(&self) -> String {
+        match self {
+            Self::ParseLineProtocol(e) => e.to_message(),
+            _ => self.to_string(),
+        }
+    }
+
     /// Convert the error to an appropriate body to be returned to the end user.
     ///
     /// The body will be flattened into the payload. Therefore, an empty body
     /// means no additional payload (beyond the code and message).
     pub fn get_body(&self) -> StdHashMap<String, serde_json::Value> {
-        StdHashMap::<String, serde_json::Value>::default()
+        match self {
+            Self::ParseLineProtocol(mutable_batch_lp::Error::PerLine { lines }) => {
+                let mut values = StdHashMap::<String, serde_json::Value>::default();
+                values.insert(
+                    "line_errors".into(),
+                    serde_json::Value::Array(
+                        lines
+                            .iter()
+                            .map(|e| serde_json::Value::Object(e.into()))
+                            .collect(),
+                    ),
+                );
+                values
+            }
+            _ => StdHashMap::<String, serde_json::Value>::default(),
+        }
     }
 }
 
