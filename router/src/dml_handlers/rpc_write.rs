@@ -321,55 +321,23 @@ async fn write_loop<T>(
 where
     T: WriteClient,
 {
-    // The last error returned from an upstream write request attempt.
-    let mut last_err = None;
+    while let Some(client) = endpoints.next() {
+        match client.write(req.clone(), span_ctx.clone()).await {
+            Ok(()) => {
+                endpoints.remove(client);
+                // Remove the upstream for the set - it should never receive the
+                // same write twice to satisfy replication.
+                return Ok(());
+            }
+            Err(e) => {
+                warn!(error=%e, "failed ingester rpc write");
+                // Prevent this client from being reused in this write attempt.
+                endpoints.remove(client);
+            }
+        };
+    }
 
-    tokio::time::timeout(RPC_TIMEOUT, async {
-        // Infinitely cycle through the snapshot, trying each node in turn until the
-        // request succeeds or this async call times out.
-        let mut delay = Duration::from_millis(50);
-        loop {
-            // Obtain the next upstream client to try.
-            let client = endpoints.next().ok_or(RpcWriteError::NotEnoughReplicas)?;
-
-            match client.write(req.clone(), span_ctx.clone()).await {
-                Ok(()) => {
-                    endpoints.remove(client);
-                    return Ok(());
-                }
-                Err(e) => {
-                    warn!(error=%e, "failed ingester rpc write");
-                    last_err = Some(e);
-                }
-            };
-
-            // Drop the client so that it is returned to the UpstreamSet and may
-            // be retried by another thread before the sleep expires.
-            drop(client);
-
-            tokio::time::sleep(delay).await;
-            delay = delay.saturating_mul(2);
-        }
-    })
-    .await
-    .map_err(|e| match last_err {
-        // Any other error is returned as-is.
-        Some(v) => RpcWriteError::Client(v),
-        // If the entire write attempt fails during the first RPC write
-        // request, then the per-request timeout is greater than the write
-        // attempt timeout, and therefore only one upstream is ever tried.
-        //
-        // Log a warning so the logs show the timeout, but also include
-        // helpful hint for the user to adjust the configuration.
-        None => {
-            warn!(
-                "failed ingester rpc write - rpc write request timed out during \
-                 the first rpc attempt; consider decreasing rpc request timeout \
-                 below {RPC_TIMEOUT:?}"
-            );
-            RpcWriteError::Timeout(e)
-        }
-    })?
+    Err(RpcWriteError::NotEnoughReplicas)
 }
 
 #[cfg(test)]
