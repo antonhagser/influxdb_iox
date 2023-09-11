@@ -23,8 +23,7 @@ use self::write::{
 };
 use crate::{
     dml_handlers::{
-        client::RpcWriteClientError, DmlError, DmlHandler, PartitionError, RetentionError,
-        RpcWriteError, SchemaError,
+        DmlError, DmlHandler, PartitionError, RetentionError, RpcWriteError, SchemaError,
     },
     namespace_resolver::NamespaceResolver,
 };
@@ -153,18 +152,6 @@ impl From<&DmlError> for StatusCode {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
             DmlError::Retention(RetentionError::OutsideRetention { .. }) => StatusCode::FORBIDDEN,
-            DmlError::RpcWrite(RpcWriteError::Client(RpcWriteClientError::Upstream(_))) => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-            DmlError::RpcWrite(RpcWriteError::Client(
-                RpcWriteClientError::MisconfiguredMetadataKey(_),
-            )) => StatusCode::INTERNAL_SERVER_ERROR,
-            DmlError::RpcWrite(RpcWriteError::Client(
-                RpcWriteClientError::MisconfiguredMetadataValue(_),
-            )) => StatusCode::INTERNAL_SERVER_ERROR,
-            DmlError::RpcWrite(RpcWriteError::Client(
-                RpcWriteClientError::UpstreamNotConnected(_),
-            )) => StatusCode::SERVICE_UNAVAILABLE,
             DmlError::RpcWrite(RpcWriteError::Timeout(_)) => StatusCode::GATEWAY_TIMEOUT,
             DmlError::RpcWrite(
                 RpcWriteError::NoHealthyUpstreams

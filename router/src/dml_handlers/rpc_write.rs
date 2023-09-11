@@ -26,7 +26,6 @@ use self::{
     balancer::Balancer,
     circuit_breaker::CircuitBreaker,
     circuit_breaking_client::{CircuitBreakerState, CircuitBreakingClient},
-    client::RpcWriteClientError,
     upstream_snapshot::UpstreamSnapshot,
 };
 use super::{DmlHandler, Partitioned};
@@ -40,10 +39,6 @@ pub const RPC_TIMEOUT: Duration = Duration::from_secs(5);
 /// Errors experienced when submitting an RPC write request to an Ingester.
 #[derive(Debug, Error)]
 pub enum RpcWriteError {
-    /// The RPC client returned an error.
-    #[error(transparent)]
-    Client(#[from] RpcWriteClientError),
-
     /// The RPC call timed out after [`RPC_TIMEOUT`] length of time.
     #[error("timeout writing to upstream ingester")]
     Timeout(tokio::time::error::Elapsed),
@@ -278,12 +273,6 @@ where
                         acks: i,
                     });
                 }
-                Err(RpcWriteError::Client(_)) => {
-                    // This error is an internal implementation detail - the
-                    // meaningful error for the user is "there's no healthy
-                    // upstreams".
-                    return Err(RpcWriteError::NoHealthyUpstreams);
-                }
                 Err(e) => return Err(e),
             }
         }
@@ -350,7 +339,9 @@ mod tests {
     use rand::seq::SliceRandom;
     use tokio::runtime;
 
-    use crate::dml_handlers::rpc_write::circuit_breaking_client::mock::MockCircuitBreaker;
+    use crate::dml_handlers::{
+        client::RpcWriteClientError, rpc_write::circuit_breaking_client::mock::MockCircuitBreaker,
+    };
 
     use super::{client::mock::MockWriteClient, *};
 
