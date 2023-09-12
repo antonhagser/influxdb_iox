@@ -58,6 +58,11 @@ pub struct Client {
 
     /// Makes this many concurrent requests at a time. Defaults to 1
     max_concurrent_uploads: NonZeroUsize,
+
+    /// If false, this will atomically reject writes with a single line protocol error.
+    /// If true, this will attempt to write all valid lines and return an error (a.k.a. partial write).
+    #[allow(unused)]
+    reject_data_per_line: bool,
 }
 
 impl Client {
@@ -72,6 +77,7 @@ impl Client {
             inner,
             max_request_payload_size_bytes: DEFAULT_MAX_REQUEST_PAYLOAD_SIZE_BYTES,
             max_concurrent_uploads: NonZeroUsize::new(1).unwrap(),
+            reject_data_per_line: false,
         }
     }
 
@@ -94,6 +100,15 @@ impl Client {
     pub fn with_max_concurrent_uploads(self, max_concurrent_uploads: NonZeroUsize) -> Self {
         Self {
             max_concurrent_uploads,
+            ..self
+        }
+    }
+
+    /// Determine if partial writes are permitted, or will atomically reject on error.
+    /// Defaults to false for partial_write (a.k.a. reject with atomic writes).
+    pub fn with_reject_data_per_line(self, reject_data_per_line: bool) -> Self {
+        Self {
+            reject_data_per_line,
             ..self
         }
     }
@@ -136,6 +151,7 @@ impl Client {
 
         let max_concurrent_uploads: usize = self.max_concurrent_uploads.into();
         let max_request_payload_size_bytes = self.max_request_payload_size_bytes;
+        let reject_data_per_line = self.reject_data_per_line;
 
         // make a stream and process in parallel
         let results = sources
@@ -153,9 +169,11 @@ impl Client {
                 let bucket_id = bucket_id.to_string();
                 let inner = Arc::clone(&self.inner);
 
-                tokio::task::spawn(
-                    async move { inner.write_source(org_id, bucket_id, source).await },
-                )
+                tokio::task::spawn(async move {
+                    inner
+                        .write_source(org_id, bucket_id, reject_data_per_line, source)
+                        .await
+                })
             })
             // Do the uploads in parallel
             .buffered(max_concurrent_uploads)
@@ -182,6 +200,7 @@ trait RequestMaker: Debug + Send + Sync {
         &self,
         org_id: String,
         bucket_id: String,
+        reject_data_per_line: bool,
         body: String,
     ) -> BoxFuture<'_, Result<usize, Error>>;
 }
@@ -191,6 +210,7 @@ impl RequestMaker for HttpConnection {
         &self,
         org_id: String,
         bucket_id: String,
+        reject_data_per_line: bool,
         body: String,
     ) -> BoxFuture<'_, Result<usize, Error>> {
         let write_url = format!("{}api/v2/write", self.uri());
@@ -203,7 +223,11 @@ impl RequestMaker for HttpConnection {
             let response = self
                 .client()
                 .request(Method::POST, &write_url)
-                .query(&[("bucket", bucket_id), ("org", org_id)])
+                .query(&[
+                    ("bucket", bucket_id),
+                    ("org", org_id),
+                    ("reject_data_per_line", reject_data_per_line.to_string()),
+                ])
                 .body(body)
                 .send()
                 .await
@@ -312,6 +336,7 @@ mod tests {
         let expected = vec![MockRequest {
             org_id: "orgname".into(),
             bucket_id: "bucketname".into(),
+            reject_data_per_line: false,
             body: data.into(),
         }];
 
@@ -337,11 +362,13 @@ mod tests {
             MockRequest {
                 org_id: "orgname".into(),
                 bucket_id: "bucketname".into(),
+                reject_data_per_line: false,
                 body: "m,t=foo f=4\nm,t=bar f=3".into(),
             },
             MockRequest {
                 org_id: "orgname".into(),
                 bucket_id: "bucketname".into(),
+                reject_data_per_line: false,
                 body: "m,t=fooddddddd f=4".into(),
             },
         ];
@@ -354,6 +381,34 @@ mod tests {
             .unwrap();
         assert_eq!(expected, mock.requests());
         assert_eq!(num_bytes, 41);
+    }
+
+    #[tokio::test]
+    async fn test_reject_data_per_line() {
+        let mock = Arc::new(MockRequestMaker::new());
+
+        let namespace = "orgname_bucketname";
+        let data = "m,t=foo f=4\n\
+                    m,t=bar f=3\n\
+                    m,t=fooddddddd f=4";
+
+        let expected = vec![MockRequest {
+            org_id: "orgname".into(),
+            bucket_id: "bucketname".into(),
+            reject_data_per_line: true,
+            body: "m,t=foo f=4\nm,t=bar f=3\nm,t=fooddddddd f=4".into(),
+        }];
+
+        assert!(Client::new_with_maker(Arc::clone(&mock) as _)
+            .with_reject_data_per_line(true)
+            .write_lp(namespace, data)
+            .await
+            .is_ok());
+        assert_eq!(
+            expected,
+            mock.requests(),
+            "with_reject_data_per_lines() should set the internal flag and pass bool to RequestMaker"
+        );
     }
 
     #[tokio::test]
@@ -372,11 +427,13 @@ mod tests {
             MockRequest {
                 org_id: "orgname".into(),
                 bucket_id: "bucketname".into(),
+                reject_data_per_line: false,
                 body: "m,t=foo f=4".into(),
             },
             MockRequest {
                 org_id: "orgname".into(),
                 bucket_id: "bucketname".into(),
+                reject_data_per_line: false,
                 body: "m,t=bar f=3".into(),
             },
         ];
@@ -393,6 +450,7 @@ mod tests {
     struct MockRequest {
         org_id: String,
         bucket_id: String,
+        reject_data_per_line: bool,
         body: String,
     }
 
@@ -419,6 +477,7 @@ mod tests {
             &self,
             org_id: String,
             bucket_id: String,
+            reject_data_per_line: bool,
             body: String,
         ) -> BoxFuture<'_, Result<usize, Error>> {
             let sz = body.len();
@@ -426,6 +485,7 @@ mod tests {
             self.requests.lock().unwrap().push(MockRequest {
                 org_id,
                 bucket_id,
+                reject_data_per_line,
                 body,
             });
 

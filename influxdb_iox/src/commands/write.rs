@@ -67,6 +67,11 @@ pub struct Config {
     /// .parquet (IOx created parquet files), and .gz (gzipped line protocol)
     #[clap(action)]
     file_names: Vec<PathBuf>,
+
+    /// If specified (reject_data_per_line = true), the client will enable partial writes.
+    /// Persisting valid line protocol, while returning itemized errors for invalid lines.
+    #[clap(action, long, default_value = "false")]
+    reject_data_per_line: bool,
 }
 
 pub async fn command(connection: Connection, config: Config) -> Result<()> {
@@ -77,6 +82,7 @@ pub async fn command(connection: Connection, config: Config) -> Result<()> {
         file_names,
         max_request_payload_size_bytes,
         max_concurrent_uploads,
+        reject_data_per_line,
     } = config;
 
     let max_concurrent_uploads =
@@ -84,7 +90,10 @@ pub async fn command(connection: Connection, config: Config) -> Result<()> {
 
     info!(
         num_files = file_names.len(),
-        max_request_payload_size_bytes, max_concurrent_uploads, "Beginning upload"
+        max_request_payload_size_bytes,
+        max_concurrent_uploads,
+        reject_data_per_line,
+        "Beginning upload"
     );
 
     // first pass is to check that all the files exist and can be
@@ -148,7 +157,8 @@ pub async fn command(connection: Connection, config: Config) -> Result<()> {
 
     let mut client = write::Client::new(connection)
         .with_max_concurrent_uploads(max_concurrent_uploads)
-        .with_max_request_payload_size_bytes(Some(max_request_payload_size_bytes));
+        .with_max_request_payload_size_bytes(Some(max_request_payload_size_bytes))
+        .with_reject_data_per_line(reject_data_per_line);
 
     let total_bytes = client
         .write_lp_stream(namespace, lp_stream)
