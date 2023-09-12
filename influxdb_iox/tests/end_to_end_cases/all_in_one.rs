@@ -1,6 +1,9 @@
+use std::time::Duration;
+
 use arrow_util::assert_batches_sorted_eq;
 use http::StatusCode;
 use iox_time::{SystemProvider, TimeProvider};
+use test_helpers::timeout::FutureTimeout;
 use test_helpers_end_to_end::{
     maybe_skip_integration, rand_name, run_sql, write_to_router, ServerFixture, TestConfig,
 };
@@ -54,7 +57,7 @@ async fn smoke() {
 
 #[tokio::test]
 async fn ephemeral_mode() {
-    // this test does not require / use a posgres database
+    // this test does not require / use a postgres database
     test_helpers::maybe_start_logging();
 
     let org = rand_name();
@@ -68,20 +71,34 @@ async fn ephemeral_mode() {
 
     let all_in_one = ServerFixture::create(test_config).await;
 
-    // Write some data into the v2 HTTP API ==============
-    // data inside the retention period
-    let now = SystemProvider::default()
-        .now()
-        .timestamp_nanos()
-        .to_string();
-    let lp = format!("{table_name},tag1=A,tag2=B val=42i {now}");
+    // Wait for the server to connect to itself (a quirk of all-in-one mode)
+    async {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
 
-    let response = write_to_router(lp, org, bucket, all_in_one.router_http_base(), None).await;
-    assert_eq!(
-        response.status(),
-        StatusCode::NO_CONTENT,
-        "response: {response:?}"
-    );
+            // Write some data into the v2 HTTP API ==============
+            // data inside the retention period
+            let now = SystemProvider::default()
+                .now()
+                .timestamp_nanos()
+                .to_string();
+            let lp = format!("{table_name},tag1=A,tag2=B val=42i {now}");
+
+            let response = write_to_router(
+                lp,
+                org.clone(),
+                bucket.clone(),
+                all_in_one.router_http_base(),
+                None,
+            )
+            .await;
+            if response.status() == StatusCode::NO_CONTENT {
+                break;
+            }
+        }
+    }
+    .with_timeout_panic(Duration::from_secs(5))
+    .await;
 
     // run query
     // do not select time because it changes every time
