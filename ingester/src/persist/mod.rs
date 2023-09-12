@@ -389,7 +389,6 @@ mod tests {
             .cas_sort_key(
                 &partition_id,
                 None,
-                None,
                 // must use column names that exist in the partition data
                 &["region"],
                 // column id of region

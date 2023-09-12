@@ -106,7 +106,6 @@ mod tests {
             .cas_sort_key(
                 &partition.transition_partition_id(),
                 None,
-                None,
                 &["uno", "dos", "bananas"],
                 &SortedColumnSet::from([1, 2, 3]),
             )
