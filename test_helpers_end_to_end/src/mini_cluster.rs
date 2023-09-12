@@ -487,6 +487,7 @@ impl MiniCluster {
         &self,
         line_protocol: impl Into<String>,
         authorization: Option<&str>,
+        reject_data_per_line: bool,
     ) -> Response<Body> {
         write_to_router(
             line_protocol,
@@ -494,6 +495,7 @@ impl MiniCluster {
             &self.bucket_id,
             self.router().router_http_base(),
             authorization,
+            reject_data_per_line,
         )
         .await
     }

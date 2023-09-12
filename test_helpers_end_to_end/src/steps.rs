@@ -366,7 +366,10 @@ where
                         "====Begin writing line protocol to v2 HTTP API:\n{}",
                         line_protocol
                     );
-                    let response = state.cluster.write_to_router(line_protocol, None).await;
+                    let response = state
+                        .cluster
+                        .write_to_router(line_protocol, None, false)
+                        .await;
                     let status = response.status();
                     let body = hyper::body::to_bytes(response.into_body())
                         .await
@@ -391,7 +394,10 @@ where
                         "====Begin writing line protocol expecting error to v2 HTTP API:\n{}",
                         line_protocol
                     );
-                    let response = state.cluster.write_to_router(line_protocol, None).await;
+                    let response = state
+                        .cluster
+                        .write_to_router(line_protocol, None, false)
+                        .await;
                     assert_eq!(response.status(), *expected_error_code);
 
                     let body: serde_json::Value = serde_json::from_slice(
@@ -431,7 +437,7 @@ where
                     );
                     let response = state
                         .cluster
-                        .write_to_router(line_protocol, Some(authorization))
+                        .write_to_router(line_protocol, Some(authorization), false)
                         .await;
                     assert_eq!(response.status(), StatusCode::NO_CONTENT);
                     info!("====Done writing line protocol");

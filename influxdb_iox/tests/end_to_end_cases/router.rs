@@ -27,7 +27,10 @@ pub async fn test_json_errors() {
         &mut cluster,
         vec![Step::Custom(Box::new(|state: &mut StepTestState| {
             async {
-                let response = state.cluster().write_to_router("bananas", None).await;
+                let response = state
+                    .cluster()
+                    .write_to_router("bananas", None, false)
+                    .await;
                 assert_eq!(response.status(), StatusCode::BAD_REQUEST);
                 assert_eq!(
                     response
@@ -161,6 +164,7 @@ async fn authz() {
                                  {table_name},tag1=A,tag2=C val=43i 123457"
                             ),
                             Some(authorization.as_str()),
+                            false,
                         )
                         .await;
                     assert_eq!(response.status(), http::StatusCode::FORBIDDEN);

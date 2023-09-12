@@ -122,7 +122,7 @@ async fn ingester_flight_api() {
 
     // Write some data into the v2 HTTP API to set up the namespace and schema ==============
     let lp = format!("{table_name},tag1=A,tag2=B val=42i 123456");
-    let response = cluster.write_to_router(lp, None).await;
+    let response = cluster.write_to_router(lp, None, false).await;
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
     // Write some data directly into the ingester through its gRPC API
@@ -379,7 +379,7 @@ async fn ingester_flight_api_table_not_found() {
 
     // Write some data into the v2 HTTP API ==============
     let lp = String::from("my_table,tag1=A,tag2=B val=42i 123456");
-    let response = cluster.write_to_router(lp, None).await;
+    let response = cluster.write_to_router(lp, None, false).await;
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
     let mut querier_flight =

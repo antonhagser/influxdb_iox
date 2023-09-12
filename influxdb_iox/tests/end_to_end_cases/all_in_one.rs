@@ -24,7 +24,8 @@ async fn smoke() {
     // Write some data into the v2 HTTP API ==============
     let lp = format!("{table_name},tag1=A,tag2=B val=42i 123456");
 
-    let response = write_to_router(lp, org, bucket, all_in_one.router_http_base(), None).await;
+    let response =
+        write_to_router(lp, org, bucket, all_in_one.router_http_base(), None, false).await;
     assert_eq!(
         response.status(),
         StatusCode::NO_CONTENT,
@@ -76,7 +77,8 @@ async fn ephemeral_mode() {
         .to_string();
     let lp = format!("{table_name},tag1=A,tag2=B val=42i {now}");
 
-    let response = write_to_router(lp, org, bucket, all_in_one.router_http_base(), None).await;
+    let response =
+        write_to_router(lp, org, bucket, all_in_one.router_http_base(), None, false).await;
     assert_eq!(
         response.status(),
         StatusCode::NO_CONTENT,

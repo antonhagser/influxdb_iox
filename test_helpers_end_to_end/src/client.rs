@@ -21,13 +21,15 @@ pub async fn write_to_router(
     bucket: impl AsRef<str>,
     write_base: impl AsRef<str>,
     authorization: Option<&str>,
+    reject_data_per_line: bool,
 ) -> Response<Body> {
     let client = Client::new();
     let url = format!(
-        "{}/api/v2/write?org={}&bucket={}",
+        "{}/api/v2/write?org={}&bucket={}&reject_data_per_line={}",
         write_base.as_ref(),
         org.as_ref(),
-        bucket.as_ref()
+        bucket.as_ref(),
+        reject_data_per_line,
     );
 
     let mut builder = Request::builder().uri(url).method("POST");
