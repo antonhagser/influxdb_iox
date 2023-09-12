@@ -434,9 +434,12 @@ where
                     Ok(_) => ControlFlow::Break(Ok(new_sort_key_colids)),
                     Err(CasFailure::QueryError(e)) => ControlFlow::Continue(e),
                     Err(CasFailure::ValueMismatch((observed_sort_key, observed_sort_key_ids)))
-                        if observed_sort_key == new_sort_key_str  // todo: remove this condition on sort_key. Keep the condition on sort_key_ids
-                            && observed_sort_key_ids == Some(new_sort_key_colids.clone()) =>
+                        if observed_sort_key_ids.as_ref() == Some(&new_sort_key_colids) =>
                     {
+                        // Invariant: if the column name sort IDs match, the
+                        // sort key column strings must also match.
+                        assert_eq!(observed_sort_key, new_sort_key_str);
+
                         // A CAS failure occurred because of a concurrent
                         // sort key update, however the new catalog sort key
                         // exactly matches the sort key this node wants to

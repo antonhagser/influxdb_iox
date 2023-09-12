@@ -684,7 +684,9 @@ impl PartitionRepo for MemTxn {
             }
             TransitionPartitionId::Deprecated(id) => p.id == *id,
         }) {
-            Some(p) if p.sort_key == old_sort_key && p.sort_key_ids == Some(old_sort_key_ids) => {
+            Some(p) if p.sort_key_ids == Some(old_sort_key_ids) => {
+                // This is here to catch bugs. It will be removed when we remove the sort_key
+                assert_eq!(p.sort_key, old_sort_key);
                 p.sort_key = new_sort_key.iter().map(|s| s.to_string()).collect();
                 p.sort_key_ids = Some(new_sort_key_ids.clone());
                 Ok(p.clone())

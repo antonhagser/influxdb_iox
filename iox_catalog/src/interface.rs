@@ -1732,32 +1732,6 @@ pub(crate) mod test_helpers {
             assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
         });
 
-        // test that provides not-matched old_sort_key but matched old_sort_key_ids
-        // --> the new sort key will not be updated
-        let err = repos
-            .partitions()
-            .cas_sort_key(
-                &to_skip_partition.transition_partition_id(),
-                Some(
-                    [
-                        "bananas".to_string(),
-                        "tag1".to_string(),
-                        "time".to_string(),
-                    ]
-                    .to_vec(),
-                ),
-                Some(SortedColumnSet::from([2, 1, 3])),
-                &["tag2", "tag1", "tag3 , with comma", "time"],
-                &SortedColumnSet::from([1, 2, 3, 4]),
-            )
-            .await
-            .expect_err("CAS with incorrect value should fail");
-        // verify the sort key is not updated
-        assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
-            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
-            assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
-        });
-
         // test that provide None sort_key and None sort_key_ids that do not match with existing values that are not None
         // --> the new sort key will not be updated
         let err = repos
