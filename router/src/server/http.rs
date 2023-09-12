@@ -11,7 +11,7 @@ use hyper::{header::CONTENT_ENCODING, Body, Method, Request, Response, StatusCod
 use iox_time::{SystemProvider, TimeProvider};
 use metric::{DurationHistogram, U64Counter};
 use mutable_batch::MutableBatch;
-use mutable_batch_lp::LinesConverter;
+use mutable_batch_lp::{LineError, LinesConverter};
 use observability_deps::tracing::*;
 use thiserror::Error;
 use tokio::sync::{Semaphore, TryAcquireError};
@@ -137,7 +137,20 @@ impl Error {
     /// The body will be flattened into the payload. Therefore, an empty body
     /// means no additional payload (beyond the code and message).
     pub fn get_body(&self) -> StdHashMap<String, serde_json::Value> {
-        StdHashMap::<String, serde_json::Value>::default()
+        match self {
+            Self::ParseLineProtocol(mutable_batch_lp::Error::PerLine { lines }) => {
+                let mut values = StdHashMap::<String, serde_json::Value>::default();
+                let line = match lines.get(0) {
+                    Some(LineError::LineProtocol { source: _, line })
+                    | Some(LineError::TimestampOverflow { line })
+                    | Some(LineError::Write { source: _, line }) => *line,
+                    None => unreachable!("PerLine error must have at least one line"),
+                };
+                values.insert("line".into(), serde_json::Value::Number(line.into()));
+                values
+            }
+            _ => StdHashMap::<String, serde_json::Value>::default(),
+        }
     }
 }
 

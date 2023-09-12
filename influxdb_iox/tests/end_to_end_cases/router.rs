@@ -85,6 +85,7 @@ pub async fn test_writes_are_atomic() {
                     \nerror parsing line 2 (1-based): Invalid measurement was provided\
                     \nerror parsing line 4 (1-based): Unable to parse timestamp value '123461000000000000000000000000"
                     .to_string(),
+                expected_line_number: Some(2),
             },
             Step::Query {
                 sql: "select * from table_atomic".into(),
@@ -147,6 +148,7 @@ async fn authz() {
                 line_protocol: line_protocol.clone(),
                 expected_error_code: http::StatusCode::UNAUTHORIZED,
                 expected_error_message: "no token".into(),
+                expected_line_number: None,
             },
             Step::Custom(Box::new(move |state: &mut StepTestState| {
                 let token = read_token.clone();
