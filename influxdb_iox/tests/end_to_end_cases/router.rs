@@ -100,6 +100,34 @@ pub async fn test_writes_are_atomic() {
                     "+------+------+--------------------------------+-----+",
                 ],
             },
+            // Database state update are applied at once (atomically), with rejection of data per line enabled.
+            Step::WriteLineProtocolPartialSuccess {
+                line_protocol: "table_atomic,tag1=C,tag2=good val=47i 123461\n\
+                    ,tag1=C,tag2=bad val=48i 123462\n\
+                    table_atomic,tag1=C,tag2=good val=49i 123463\n\
+                    table_atomic,tag1=C,tag2=bad val=50i 1234640000000000000000000000000\n\
+                    table_atomic,tag1=C,tag2=good val=51i 123465"
+                    .into(),
+                expected_error_message: "failed to parse line protocol: errors encountered on 2 lines".to_string(),
+                expected_error_body: HashMap::<String, String>::from([
+                    ("line_errors".into(), "[{\"err\":\"error parsing line 2 (1-based): Invalid measurement was provided\",\"index\":2},\
+                    {\"err\":\"error parsing line 4 (1-based): Unable to parse timestamp value '1234640000000000000000000000000'\",\"index\":4}]".into())
+                ]),
+            },
+            Step::Query {
+                sql: "select * from table_atomic".into(),
+                expected: vec![
+                    "+------+------+--------------------------------+-----+",
+                    "| tag1 | tag2 | time                           | val |",
+                    "+------+------+--------------------------------+-----+",
+                    "| A    | good | 1970-01-01T00:00:00.000123456Z | 42  |",
+                    "| A    | good | 1970-01-01T00:00:00.000123457Z | 43  |",
+                    "| C    | good | 1970-01-01T00:00:00.000123461Z | 47  |",
+                    "| C    | good | 1970-01-01T00:00:00.000123463Z | 49  |",
+                    "| C    | good | 1970-01-01T00:00:00.000123465Z | 51  |",
+                    "+------+------+--------------------------------+-----+",
+                ],
+            },
         ],
     )
     .run()

@@ -174,6 +174,14 @@ pub enum Step {
         expected_error_body: std::collections::HashMap<String, String>,
     },
 
+    /// Writes the specified line protocol to the `/api/v2/write` endpoint; assert the request
+    /// was partially successful.
+    WriteLineProtocolPartialSuccess {
+        line_protocol: String,
+        expected_error_message: String,
+        expected_error_body: std::collections::HashMap<String, String>,
+    },
+
     /// Writes the specified line protocol to the `/api/v2/write` endpoint
     /// using the specified authorization header, assert the data was
     /// written successfully.
@@ -413,6 +421,52 @@ where
                         "error message did not match: expected '{}' to contain '{}'",
                         body["message"],
                         expected_error_message
+                    );
+
+                    for (k, v) in expected_error_body.iter() {
+                        assert!(
+                            body[k].to_string().contains(v),
+                            "expected error body to contain '{}:{}', but not found in: {:?}",
+                            k,
+                            v,
+                            body.to_string()
+                        );
+                    }
+
+                    info!("====Done writing line protocol expecting error");
+                }
+                Step::WriteLineProtocolPartialSuccess {
+                    line_protocol,
+                    expected_error_message,
+                    expected_error_body,
+                } => {
+                    info!(
+                        "====Begin writing line protocol expecting partial success/error to v2 HTTP API:\n{}",
+                        line_protocol
+                    );
+                    let response = state
+                        .cluster
+                        .write_to_router(line_protocol, None, true)
+                        .await;
+                    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+                    let body: serde_json::Value = serde_json::from_slice(
+                        &hyper::body::to_bytes(response.into_body())
+                            .await
+                            .expect("should be able to read response body"),
+                    )
+                    .expect("response body should be valid json");
+
+                    let expected = format!(
+                        "write was partially successful, with the following partial rejections: {}",
+                        expected_error_message
+                    );
+                    assert_matches::assert_matches!(
+                        body["message"],
+                        serde_json::Value::String(ref s) if s.contains(&expected),
+                        "error message did not match: expected '{}' to contain '{}'",
+                        body["message"],
+                        expected,
                     );
 
                     for (k, v) in expected_error_body.iter() {
