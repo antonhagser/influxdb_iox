@@ -54,7 +54,7 @@ impl SortKeyResolver {
                 let sort_key =
                     build_sort_key_from_sort_key_ids_and_columns(&p_sort_key_ids, &columns);
 
-                // This is here to catch bugs and will be removed once the sort_keyis removed from the partition
+                // This is here to catch bugs and will be removed once the sort_key is removed from the partition
                 assert_eq!(sort_key, p_sort_key);
 
                 Result::<_, iox_catalog::interface::Error>::Ok((sort_key, p_sort_key_ids))
@@ -106,9 +106,7 @@ mod tests {
         let catalog: Arc<dyn Catalog> =
             Arc::new(iox_catalog::mem::MemCatalog::new(Arc::clone(&metrics)));
 
-        // Populate the catalog with the namespace / table
-        // let (_ns_id, table_id) = populate_catalog(&*catalog, NAMESPACE_NAME, TABLE_NAME).await;
-
+        // Populate the catalog with the namespace, table & columns
         let (_ns_id, table_id, col_ids) = populate_catalog_with_table_columns(
             &*catalog,
             NAMESPACE_NAME,
