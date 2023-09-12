@@ -141,6 +141,7 @@ async fn parse_v1(
     Ok(WriteParams {
         namespace,
         precision: write_params.precision,
+        reject_data_per_line: write_params.reject_data_per_line,
     })
 }
 
@@ -168,6 +169,7 @@ async fn parse_v2(
     Ok(WriteParams {
         namespace,
         precision: write_params.precision,
+        reject_data_per_line: write_params.reject_data_per_line,
     })
 }
 
@@ -304,9 +306,10 @@ mod tests {
     test_parse_v1!(
         no_rp,
         query_string = "?db=bananas",
-        want = Ok(WriteParams{ namespace, precision }) => {
+        want = Ok(WriteParams{ namespace, precision, reject_data_per_line }) => {
             assert_eq!(namespace.as_str(), "bananas");
             assert_matches!(precision, Precision::Nanoseconds);
+            assert_matches!(reject_data_per_line, false);
         }
     );
 
@@ -314,9 +317,10 @@ mod tests {
     test_parse_v1!(
         no_rp_db_with_rp_separator,
         query_string = "?db=bananas/are/great",
-        want = Ok(WriteParams{ namespace, precision }) => {
+        want = Ok(WriteParams{ namespace, precision, reject_data_per_line }) => {
             assert_eq!(namespace.as_str(), "bananas/are/great");
             assert_matches!(precision, Precision::Nanoseconds);
+            assert_matches!(reject_data_per_line, false);
         }
     );
 
@@ -324,9 +328,10 @@ mod tests {
     test_parse_v1!(
         rp_with_rp_separator,
         query_string = "?db=bananas&rp=are/great",
-        want = Ok(WriteParams{ namespace, precision }) => {
+        want = Ok(WriteParams{ namespace, precision, reject_data_per_line }) => {
             assert_eq!(namespace.as_str(), "bananas/are/great");
             assert_matches!(precision, Precision::Nanoseconds);
+            assert_matches!(reject_data_per_line, false);
         }
     );
 
@@ -334,9 +339,10 @@ mod tests {
     test_parse_v1!(
         db_with_rp_separator_and_rp,
         query_string = "?db=foo/bar&rp=my_rp",
-        want = Ok(WriteParams{ namespace, precision }) => {
+        want = Ok(WriteParams{ namespace, precision, reject_data_per_line }) => {
             assert_eq!(namespace.as_str(), "foo/bar/my_rp");
             assert_matches!(precision, Precision::Nanoseconds);
+            assert_matches!(reject_data_per_line, false);
         }
     );
 
@@ -345,9 +351,10 @@ mod tests {
     test_parse_v1!(
         db_with_rp_separator_and_duplicate_rp,
         query_string = "?db=foo/my_rp&rp=my_rp",
-        want = Ok(WriteParams{ namespace, precision }) => {
+        want = Ok(WriteParams{ namespace, precision, reject_data_per_line }) => {
             assert_eq!(namespace.as_str(), "foo/my_rp/my_rp");
             assert_matches!(precision, Precision::Nanoseconds);
+            assert_matches!(reject_data_per_line, false);
         }
     );
 
@@ -355,9 +362,10 @@ mod tests {
     test_parse_v1!(
         db_with_rp_separator_and_rp_autogen,
         query_string = "?db=foo/bar&rp=autogen",
-        want = Ok(WriteParams{ namespace, precision }) => {
+        want = Ok(WriteParams{ namespace, precision, reject_data_per_line }) => {
             assert_eq!(namespace.as_str(), "foo/bar");
             assert_matches!(precision, Precision::Nanoseconds);
+            assert_matches!(reject_data_per_line, false);
         }
     );
 
@@ -365,52 +373,57 @@ mod tests {
     test_parse_v1!(
         db_with_rp_separator_and_rp_default,
         query_string = "?db=foo/bar&rp=default",
-        want = Ok(WriteParams{ namespace, precision }) => {
+        want = Ok(WriteParams{ namespace, precision, reject_data_per_line }) => {
             assert_eq!(namespace.as_str(), "foo/bar");
             assert_matches!(precision, Precision::Nanoseconds);
+            assert_matches!(reject_data_per_line, false);
         }
     );
 
     test_parse_v1!(
         rp_empty,
         query_string = "?db=bananas&rp=",
-        want = Ok(WriteParams{ namespace, precision }) => {
+        want = Ok(WriteParams{ namespace, precision, reject_data_per_line }) => {
             assert_eq!(namespace.as_str(), "bananas");
             assert_matches!(precision, Precision::Nanoseconds);
+            assert_matches!(reject_data_per_line, false);
         }
     );
 
     test_parse_v1!(
         rp_empty_quotes,
         query_string = "?db=bananas&rp=''",
-        want = Ok(WriteParams{ namespace, precision }) => {
+        want = Ok(WriteParams{ namespace, precision, reject_data_per_line }) => {
             assert_eq!(namespace.as_str(), "bananas");
             assert_matches!(precision, Precision::Nanoseconds);
+            assert_matches!(reject_data_per_line, false);
         }
     );
 
     test_parse_v1!(
         rp_autogen,
         query_string = "?db=bananas&rp=autogen",
-        want = Ok(WriteParams{ namespace, precision }) => {
+        want = Ok(WriteParams{ namespace, precision, reject_data_per_line }) => {
             assert_eq!(namespace.as_str(), "bananas");
             assert_matches!(precision, Precision::Nanoseconds);
+            assert_matches!(reject_data_per_line, false);
         }
     );
 
     test_parse_v1!(
         rp_specified,
         query_string = "?db=bananas&rp=ageless",
-        want = Ok(WriteParams{ namespace, precision }) => {
+        want = Ok(WriteParams{ namespace, precision, reject_data_per_line }) => {
             assert_eq!(namespace.as_str(), "bananas/ageless");
             assert_matches!(precision, Precision::Nanoseconds);
+            assert_matches!(reject_data_per_line, false);
         }
     );
 
     test_parse_v1!(
         encoded_case_sensitive,
         query_string = "?db=BaNanas",
-        want = Ok(WriteParams{ namespace, precision: _ }) => {
+        want = Ok(WriteParams{ namespace, precision: _, reject_data_per_line: _ }) => {
             assert_eq!(namespace.as_str(), "BaNanas");
         }
     );
@@ -426,7 +439,7 @@ mod tests {
     test_parse_v1!(
         start_nonalphanumeric,
         query_string = "?db=_bananas",
-        want = Ok(WriteParams{ namespace, precision: _ }) => {
+        want = Ok(WriteParams{ namespace, precision: _, reject_data_per_line: _ }) => {
             assert_eq!(namespace.as_str(), "_bananas");
         }
     );
@@ -434,7 +447,7 @@ mod tests {
     test_parse_v1!(
         minimum_length_possible,
         query_string = "?db=d",
-        want = Ok(WriteParams{ namespace, precision: _ }) => {
+        want = Ok(WriteParams{ namespace, precision: _, reject_data_per_line: _ }) => {
             assert_eq!(namespace.as_str().len(), 1);
         }
     );
@@ -442,7 +455,7 @@ mod tests {
     test_parse_v1!(
         with_precision,
         query_string = "?db=bananas&rp=ageless&precision=ms",
-        want = Ok(WriteParams{ namespace, precision }) => {
+        want = Ok(WriteParams{ namespace, precision, reject_data_per_line: _ }) => {
             assert_eq!(namespace.as_str(), "bananas/ageless");
             assert_matches!(precision, Precision::Milliseconds);
         }
@@ -489,7 +502,7 @@ mod tests {
     test_parse_v2!(
         bucket_only,
         query_string = "?bucket=bananas",
-        want = Ok(WriteParams{ namespace, precision }) => {
+        want = Ok(WriteParams{ namespace, precision, reject_data_per_line: _ }) => {
             assert_eq!(namespace.as_str(), "bananas");
             assert_matches!(precision, Precision::Nanoseconds);
         }
@@ -543,7 +556,8 @@ mod tests {
         query_string = "?org=wat&bucket=bananas",
         want = Ok(WriteParams {
             namespace,
-            precision
+            precision,
+            reject_data_per_line: _,
         }) => {
             assert_eq!(namespace.as_str(), "bananas");
             assert_matches!(precision, Precision::Nanoseconds);
@@ -596,10 +610,24 @@ mod tests {
         query_string = "?bucket=bananas&precision=ms",
         want = Ok(WriteParams {
             namespace,
-            precision
+            precision,
+            reject_data_per_line: _,
         }) => {
             assert_eq!(namespace.as_str(), "bananas");
             assert_matches!(precision, Precision::Milliseconds);
+        }
+    );
+
+    test_parse_v2!(
+        with_reject_data_per_line,
+        query_string = "?bucket=bananas&reject_data_per_line=true",
+        want = Ok(WriteParams {
+            namespace,
+            precision: _,
+            reject_data_per_line,
+        }) => {
+            assert_eq!(namespace.as_str(), "bananas");
+            assert_matches!(reject_data_per_line, true);
         }
     );
 }

@@ -75,6 +75,9 @@ pub(crate) struct WriteParamsV1 {
     // in the CST spec, we treat the `p` parameter as a token
     #[serde(rename(deserialize = "p"))]
     pub(crate) password: Option<String>,
+
+    #[serde(default)]
+    pub(crate) reject_data_per_line: bool,
 }
 
 impl<T> TryFrom<&Request<T>> for WriteParamsV1 {

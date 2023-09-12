@@ -72,6 +72,7 @@ fn parse_v2(req: &Request<Body>) -> Result<WriteParams, MultiTenantExtractError>
     Ok(WriteParams {
         namespace,
         precision: write_params.precision,
+        reject_data_per_line: write_params.reject_data_per_line,
     })
 }
 
@@ -225,10 +226,25 @@ mod tests {
         query_string = "?org=banana&bucket=cool&precision=ms",
         want = Ok(WriteParams {
             namespace,
-            precision
+            precision,
+            reject_data_per_line,
         }) => {
             assert_eq!(namespace.as_str(), "banana_cool");
             assert_matches!(precision, Precision::Milliseconds);
+            assert_matches!(reject_data_per_line, false);
+        }
+    );
+
+    test_parse_v2!(
+        with_reject_data_per_line,
+        query_string = "?org=banana&bucket=cool&reject_data_per_line=true",
+        want = Ok(WriteParams {
+            namespace,
+            precision: _,
+            reject_data_per_line,
+        }) => {
+            assert_eq!(namespace.as_str(), "banana_cool");
+            assert_matches!(reject_data_per_line, true);
         }
     );
 }

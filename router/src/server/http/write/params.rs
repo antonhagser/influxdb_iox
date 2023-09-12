@@ -42,6 +42,7 @@ impl Precision {
 pub struct WriteParams {
     pub(crate) namespace: NamespaceName<'static>,
     pub(crate) precision: Precision,
+    pub(crate) reject_data_per_line: bool,
 }
 
 /// A [`WriteRequestUnifier`] abstraction returns a unified [`WriteParams`]

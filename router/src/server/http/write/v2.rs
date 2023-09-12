@@ -32,6 +32,9 @@ pub(crate) struct WriteParamsV2 {
 
     #[serde(default)]
     pub(crate) precision: Precision,
+
+    #[serde(default)]
+    pub(crate) reject_data_per_line: bool,
 }
 
 impl<T> TryFrom<&Request<T>> for WriteParamsV2 {

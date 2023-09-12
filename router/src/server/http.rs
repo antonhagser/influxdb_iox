@@ -1118,6 +1118,7 @@ mod tests {
                     Ok(WriteParams {
                         namespace: NamespaceName::new(NAMESPACE_NAME).unwrap(),
                         precision: Precision::default(),
+                        reject_data_per_line: false,
                     })
                 })),
             ),
@@ -1274,6 +1275,7 @@ mod tests {
                 Ok(WriteParams {
                     namespace: NamespaceName::new(NAMESPACE_NAME).unwrap(),
                     precision: Precision::default(),
+                    reject_data_per_line: false,
                 })
             }),
         ));
