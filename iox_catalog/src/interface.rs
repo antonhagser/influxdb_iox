@@ -79,6 +79,9 @@ pub enum Error {
     #[snafu(display("table {} not found", id))]
     TableNotFound { id: TableId },
 
+    #[snafu(display("table {} not found", name))]
+    TableNotFoundByName { name: String },
+
     #[snafu(display("partition {} not found", id))]
     PartitionNotFound { id: TransitionPartitionId },
 
@@ -600,6 +603,44 @@ where
     Ok(namespace)
 }
 
+/// Gets the schema for one particular table in a namespace.
+pub async fn get_schema_by_namespace_and_table<R>(
+    name: &str,
+    table_name: &str,
+    repos: &mut R,
+    deleted: SoftDeletedRows,
+) -> Result<NamespaceSchema>
+where
+    R: RepoCollection + ?Sized,
+{
+    let namespace = repos
+        .namespaces()
+        .get_by_name(name, deleted)
+        .await?
+        .context(NamespaceNotFoundByNameSnafu { name })?;
+
+    let table = repos
+        .tables()
+        .get_by_namespace_and_name(namespace.id, table_name)
+        .await?
+        .context(TableNotFoundByNameSnafu {
+            name: table_name.to_string(),
+        })?;
+    let mut table_schema = TableSchema::new_empty_from(&table);
+
+    let columns = repos.columns().list_by_table_id(table.id).await?;
+    for c in columns {
+        table_schema.add_column(c);
+    }
+
+    let mut namespace = NamespaceSchema::new_empty_from(&namespace);
+    namespace
+        .tables
+        .insert(table_name.to_string(), table_schema);
+
+    Ok(namespace)
+}
+
 /// Gets all the table's columns.
 pub async fn get_table_columns_by_id<R>(id: TableId, repos: &mut R) -> Result<ColumnsByName>
 where
@@ -719,42 +760,6 @@ pub async fn list_schemas(
     Ok(iter)
 }
 
-/// panic if the sort_key and sort_key_ids have different lengths
-// TODO: This function will be removed when sort_key is removed from the partition.
-// We are still in migration process and this function is used to verify the correctness
-// of the migration and discover data corruption asap if any
-pub(crate) fn verify_old_sort_keys(
-    sort_key: &Option<Vec<String>>,
-    sort_key_ids: &Option<SortedColumnSet>,
-) {
-    match (sort_key, sort_key_ids) {
-        (None, None) => {}
-        (Some(sort_key), Some(sort_key_ids)) => {
-            // panic if sort_key and key_ids have different lengths
-            if sort_key.len() != sort_key_ids.len() {
-                panic!(
-                    "sort_key {:?} and sort_key_ids {:?} are not the same length",
-                    sort_key, sort_key_ids
-                );
-            }
-        }
-        _ => panic!(
-            "sort_key {:?} and sort_key_ids {:?} must both be None or Some",
-            sort_key, sort_key_ids
-        ),
-    }
-}
-
-/// panic if sort_key and sort_key_ids have different lengths
-pub(crate) fn verify_sort_key_length(sort_key: &[&str], sort_key_ids: &SortedColumnSet) {
-    if sort_key.len() != sort_key_ids.len() {
-        panic!(
-            "sort_key {:?} and sort_key_ids {:?} are not the same length",
-            sort_key, sort_key_ids
-        );
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod test_helpers {
     use crate::{
@@ -770,63 +775,6 @@ pub(crate) mod test_helpers {
     use generated_types::influxdata::iox::partition_template::v1 as proto;
     use metric::{Attributes, DurationHistogram, Metric};
     use std::{collections::BTreeSet, ops::DerefMut, sync::Arc, time::Duration};
-
-    // panic: the sort_key and sort_key_ids have different lengths
-    #[test]
-    #[should_panic(
-        expected = "sort_key [\"time\"] and sort_key_ids SortedColumnSet([ColumnId(1), ColumnId(2)]) are not the same length"
-    )]
-    fn test_verify_old_sort_keys_different_length() {
-        let old_sort_key = Some(vec!["time".to_string()]);
-        let old_sort_key_ids = Some(SortedColumnSet::from(vec![1, 2]));
-        verify_old_sort_keys(&old_sort_key, &old_sort_key_ids);
-    }
-
-    // panic: the sort_key is some and sort_key_ids is none
-    #[test]
-    #[should_panic(
-        expected = "sort_key Some([\"time\"]) and sort_key_ids None must both be None or Some"
-    )]
-    fn test_verify_old_sort_keys_some_none() {
-        let old_sort_key = Some(vec!["time".to_string()]);
-        let old_sort_key_ids = None;
-        verify_old_sort_keys(&old_sort_key, &old_sort_key_ids);
-    }
-
-    // panic: the sort_key is none and sort_key_ids is some
-    #[test]
-    #[should_panic(
-        expected = "sort_key None and sort_key_ids Some(SortedColumnSet([ColumnId(1), ColumnId(2)])) must both be None or Some"
-    )]
-    fn test_verify_old_sort_keys_none_some() {
-        let old_sort_key = None;
-        let old_sort_key_ids = Some(SortedColumnSet::from(vec![1, 2]));
-        verify_old_sort_keys(&old_sort_key, &old_sort_key_ids);
-    }
-
-    #[test]
-    fn test_verify_old_sort_keys() {
-        let old_sort_key = Some(vec!["whatever".to_string(), "time".to_string()]);
-        let old_sort_key_ids = Some(SortedColumnSet::from(vec![1, 2]));
-        verify_old_sort_keys(&old_sort_key, &old_sort_key_ids);
-    }
-
-    #[test]
-    fn test_verify_sort_key_length() {
-        let sort_key = vec!["whatever", "time"];
-        let sort_key_ids = SortedColumnSet::from(vec![1, 2]);
-        verify_sort_key_length(&sort_key, &sort_key_ids);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "sort_key [\"whatever\", \"time\"] and sort_key_ids SortedColumnSet([ColumnId(1)]) are not the same length"
-    )]
-    fn test_verify_sort_key_length_different_lens() {
-        let sort_key = vec!["whatever", "time"];
-        let sort_key_ids = SortedColumnSet::from(vec![1]);
-        verify_sort_key_length(&sort_key, &sort_key_ids);
-    }
 
     pub(crate) async fn test_catalog<R, F>(clean_state: R)
     where
@@ -1724,8 +1672,9 @@ pub(crate) mod test_helpers {
 
         // sort_key should be empty on creation
         assert!(to_skip_partition.sort_key.is_empty());
+        assert!(to_skip_partition.sort_key_ids.as_ref().unwrap().is_empty());
 
-        // test update_sort_key from None to Some
+        // test that updates sort_key and sort_key_ids from None to Some
         let updated_partition = repos
             .partitions()
             .cas_sort_key(
@@ -1738,15 +1687,15 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
 
-        // verify sort key and sort key ids  are updated
+        // verify sort_key and sort_key_ids are updated correctly
         assert_eq!(updated_partition.sort_key, &["tag2", "tag1", "time"]);
         assert_eq!(
             updated_partition.sort_key_ids,
             Some(SortedColumnSet::from([2, 1, 3]))
         );
 
-        // test sort key CAS with an incorrect value
-        // non-existing old_sort_key and old_sort_key_ids
+        // test that provides values of both old_sort_key and old_sort_key_ids but they do not match the existing ones
+        // --> the new sort key will not be updated
         let err = repos
             .partitions()
             .cas_sort_key(
@@ -1758,12 +1707,50 @@ pub(crate) mod test_helpers {
             )
             .await
             .expect_err("CAS with incorrect value should fail");
+        // verify the sort key is not updated
         assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
             assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
             assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
         });
 
-        // test getting the new sort key
+        // test that provides matched old_sort_key but not-matched old_sort_key_ids
+        // --> the new sort key will not be updated
+        let err = repos
+            .partitions()
+            .cas_sort_key(
+                &to_skip_partition.transition_partition_id(),
+                Some(["tag2".to_string(), "tag1".to_string(), "time".to_string()].to_vec()),
+                Some(SortedColumnSet::from([1, 5, 10])),
+                &["tag2", "tag1", "tag3 , with comma", "time"],
+                &SortedColumnSet::from([1, 2, 3, 4]),
+            )
+            .await
+            .expect_err("CAS with incorrect value should fail");
+        // verify the sort key is not updated
+        assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
+            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
+            assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
+        });
+
+        // test that provide None sort_key and None sort_key_ids that do not match with existing values that are not None
+        // --> the new sort key will not be updated
+        let err = repos
+            .partitions()
+            .cas_sort_key(
+                &to_skip_partition.transition_partition_id(),
+                None,
+                None,
+                &["tag2", "tag1", "tag3 , with comma", "time"],
+                &SortedColumnSet::from([1, 2, 3, 4]),
+            )
+            .await
+            .expect_err("CAS with incorrect value should fail");
+        assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
+            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
+            assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
+        });
+
+        // test getting partition from partition id and verify values of sort_key and sort_key_ids
         let updated_other_partition = repos
             .partitions()
             .get_by_id(to_skip_partition.id)
@@ -1780,40 +1767,24 @@ pub(crate) mod test_helpers {
             Some(SortedColumnSet::from([2, 1, 3]))
         );
 
+        // test getting partition from hash_id and verify values of sort_key and sort_key_ids
         let updated_other_partition = repos
             .partitions()
             .get_by_hash_id(to_skip_partition.hash_id().unwrap())
             .await
             .unwrap()
             .unwrap();
+        // still has the old sort key
         assert_eq!(
             updated_other_partition.sort_key,
             vec!["tag2", "tag1", "time"]
         );
-        // Test: sort_key_ids from get_by_hash_id
         assert_eq!(
             updated_other_partition.sort_key_ids,
             Some(SortedColumnSet::from([2, 1, 3]))
         );
 
-        // test sort key CAS with no value
-        let err = repos
-            .partitions()
-            .cas_sort_key(
-                &to_skip_partition.transition_partition_id(),
-                None,
-                None,
-                &["tag2", "tag1", "tag3 , with comma", "time"],
-                &SortedColumnSet::from([1, 2, 3, 4]),
-            )
-            .await
-            .expect_err("CAS with incorrect value should fail");
-        assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
-            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
-            assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
-        });
-
-        // test update_sort_key from Some value to Some other value
+        // test that updates sort_key and sort_key_ids from Some matching values to Some other values
         let updated_partition = repos
             .partitions()
             .cas_sort_key(
@@ -1830,6 +1801,7 @@ pub(crate) mod test_helpers {
             )
             .await
             .unwrap();
+        // verify the new values are updated
         assert_eq!(
             updated_partition.sort_key,
             vec!["tag2", "tag1", "tag3 , with comma", "time"]
@@ -1839,7 +1811,7 @@ pub(crate) mod test_helpers {
             Some(SortedColumnSet::from([2, 1, 4, 3]))
         );
 
-        // test getting the new sort key
+        // test getting the new sort key from partition id
         let updated_partition = repos
             .partitions()
             .get_by_id(to_skip_partition.id)
@@ -1855,6 +1827,7 @@ pub(crate) mod test_helpers {
             Some(SortedColumnSet::from([2, 1, 4, 3]))
         );
 
+        // test getting the new sort key from partition hash_id
         let updated_partition = repos
             .partitions()
             .get_by_hash_id(to_skip_partition.hash_id().unwrap())
@@ -1868,6 +1841,35 @@ pub(crate) mod test_helpers {
         assert_eq!(
             updated_partition.sort_key_ids,
             Some(SortedColumnSet::from([2, 1, 4, 3]))
+        );
+
+        // use to_skip_partition_too to update sort key from empty old values
+        // first make sure the old values are empty
+        assert!(to_skip_partition_too.sort_key.is_empty());
+        assert!(to_skip_partition_too
+            .sort_key_ids
+            .as_ref()
+            .unwrap()
+            .is_empty());
+
+        // test that provides empty old_sort_key and empty old_sort_key_ids
+        // --> the new sort key will be updated
+        let updated_to_skip_partition_too = repos
+            .partitions()
+            .cas_sort_key(
+                &to_skip_partition_too.transition_partition_id(),
+                Some(vec![]),
+                Some(SortedColumnSet::from([])),
+                &["tag3", "time"],
+                &SortedColumnSet::from([3, 4]),
+            )
+            .await
+            .unwrap();
+        // verify the new values are updated
+        assert_eq!(updated_to_skip_partition_too.sort_key, vec!["tag3", "time"]);
+        assert_eq!(
+            updated_to_skip_partition_too.sort_key_ids,
+            Some(SortedColumnSet::from([3, 4]))
         );
 
         // The compactor can log why compaction was skipped
@@ -2052,10 +2054,17 @@ pub(crate) mod test_helpers {
         assert_eq!(recent.len(), 4);
 
         // Test: sort_key_ids from most_recent_n
-        // Only the second one has vallues, the other 3 are empty
+        // Only the first two partitions (represent to_skip_partition_too and to_skip_partition) have vallues, the others are empty
         let empty_vec_string: Vec<String> = vec![];
-        assert_eq!(recent[0].sort_key, empty_vec_string);
-        assert_eq!(recent[0].sort_key_ids, Some(SortedColumnSet::from(vec![])));
+
+        assert_eq!(
+            recent[0].sort_key,
+            vec!["tag3".to_string(), "time".to_string(),]
+        );
+        assert_eq!(
+            recent[0].sort_key_ids,
+            Some(SortedColumnSet::from(vec![3, 4]))
+        );
 
         assert_eq!(
             recent[1].sort_key,

@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use data_types::{CompactionLevel, ParquetFile};
+use data_types::{CompactionLevel, ParquetFile, TransitionPartitionId};
 
 use crate::RoundInfo;
 
@@ -29,6 +29,7 @@ impl RoundSplit for ManyFilesRoundSplit {
         &self,
         files: Vec<ParquetFile>,
         round_info: RoundInfo,
+        partition: TransitionPartitionId,
     ) -> (Vec<ParquetFile>, Vec<ParquetFile>) {
         // Scpecify specific arms to avoid missing any new variants
         match round_info {
@@ -67,11 +68,26 @@ impl RoundSplit for ManyFilesRoundSplit {
                 // We're splitting L0 files at split_times.  So any L0 that overlaps a split_time needs processed, and all other files are ignored until later.
                 let (split_files, rest): (Vec<ParquetFile>, Vec<ParquetFile>) =
                     files.into_iter().partition(|f| {
-                        f.compaction_level == CompactionLevel::Initial
-                            && f.needs_split(&split_times)
+                        f.compaction_level != CompactionLevel::Final && f.needs_split(&split_times)
                     });
 
+                assert!(
+                    !split_files.is_empty(),
+                    "if we decided to split, there should be something to split, instead found no split_files for partition {}",
+                    partition
+                );
                 (split_files, rest)
+            }
+
+            RoundInfo::CompactRanges { ranges, .. } => {
+                // We're compacting L0 & L1s in the specified ranges.  Files outside these ranges are
+                // ignored until a later round.
+                let (compact_files, rest): (Vec<ParquetFile>, Vec<ParquetFile>) =
+                    files.into_iter().partition(|f| {
+                        f.compaction_level != CompactionLevel::Final && f.overlaps_ranges(&ranges)
+                    });
+
+                (compact_files, rest)
             }
         }
     }
@@ -79,7 +95,7 @@ impl RoundSplit for ManyFilesRoundSplit {
 
 #[cfg(test)]
 mod tests {
-    use data_types::CompactionLevel;
+    use data_types::{CompactionLevel, PartitionId};
     use iox_tests::ParquetFileBuilder;
 
     use crate::RoundInfo;
@@ -99,9 +115,13 @@ mod tests {
             max_total_file_size_to_group: 100,
         };
         let split = ManyFilesRoundSplit::new();
+        let default_partition = TransitionPartitionId::Deprecated(PartitionId::new(0));
 
         // empty input
-        assert_eq!(split.split(vec![], round_info.clone()), (vec![], vec![]));
+        assert_eq!(
+            split.split(vec![], round_info.clone(), default_partition.clone()),
+            (vec![], vec![])
+        );
 
         // all L0
         let f1 = ParquetFileBuilder::new(1)
@@ -111,7 +131,11 @@ mod tests {
             .with_compaction_level(CompactionLevel::Initial)
             .build();
         assert_eq!(
-            split.split(vec![f1.clone(), f2.clone()], round_info.clone()),
+            split.split(
+                vec![f1.clone(), f2.clone()],
+                round_info.clone(),
+                default_partition.clone()
+            ),
             (vec![f1.clone(), f2.clone()], vec![])
         );
 
@@ -125,7 +149,8 @@ mod tests {
         assert_eq!(
             split.split(
                 vec![f1.clone(), f2.clone(), f3.clone(), f4.clone()],
-                round_info.clone()
+                round_info.clone(),
+                default_partition,
             ),
             (vec![f1, f2], vec![f3, f4])
         );
@@ -138,15 +163,23 @@ mod tests {
             max_total_file_size_to_group: 100 * 1024 * 1024,
         };
         let split = ManyFilesRoundSplit::new();
+        let default_partition = TransitionPartitionId::Deprecated(PartitionId::new(0));
 
         // empty input
-        assert_eq!(split.split(vec![], round_info.clone()), (vec![], vec![]));
+        assert_eq!(
+            split.split(vec![], round_info.clone(), default_partition.clone()),
+            (vec![], vec![])
+        );
 
         // non empty
         let f1 = ParquetFileBuilder::new(1).build();
         let f2 = ParquetFileBuilder::new(2).build();
         assert_eq!(
-            split.split(vec![f1.clone(), f2.clone()], round_info.clone()),
+            split.split(
+                vec![f1.clone(), f2.clone()],
+                round_info.clone(),
+                default_partition
+            ),
             (vec![f1, f2], vec![])
         );
     }

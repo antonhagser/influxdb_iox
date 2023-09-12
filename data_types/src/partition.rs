@@ -280,7 +280,7 @@ pub struct PartitionHashId(Arc<[u8; PARTITION_HASH_ID_SIZE_BYTES]>);
 
 impl std::fmt::Display for PartitionHashId {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        for byte in self.0.iter() {
+        for byte in &*self.0 {
             write!(f, "{:02x}", byte)?;
         }
         Ok(())
@@ -514,6 +514,8 @@ impl Partition {
         self.hash_id.as_ref()
     }
 
+    // TODO: remove this function after all PRs that teach compactor, ingester,
+    // and querier to use sort_key_ids are merged.
     /// The sort key for the partition, if present, structured as a `SortKey`
     pub fn sort_key(&self) -> Option<SortKey> {
         if self.sort_key.is_empty() {
@@ -544,7 +546,7 @@ impl Partition {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     use assert_matches::assert_matches;
@@ -570,7 +572,7 @@ mod tests {
     prop_compose! {
         /// Return an arbitrary [`TransitionPartitionId`] with a randomised ID
         /// value.
-        fn arbitrary_partition_id()(
+        pub fn arbitrary_partition_id()(
             use_hash in any::<bool>(),
             row_id in any::<i64>(),
             hash_id in any::<[u8; PARTITION_HASH_ID_SIZE_BYTES]>()

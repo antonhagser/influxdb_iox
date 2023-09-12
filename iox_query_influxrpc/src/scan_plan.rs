@@ -103,7 +103,7 @@ impl<'a> ScanPlanBuilder<'a> {
 
     /// Adds `chunks` to the list of Chunks to scan
     pub fn with_chunks(mut self, chunks: impl IntoIterator<Item = Arc<dyn QueryChunk>>) -> Self {
-        self.chunks.extend(chunks.into_iter());
+        self.chunks.extend(chunks);
         self
     }
 
@@ -212,7 +212,7 @@ mod tests {
         - "   DeduplicateExec: [tag1@3 ASC,time@4 ASC]"
         - "     SortPreservingMergeExec: [tag1@3 ASC,time@4 ASC,__chunk_order@0 ASC]"
         - "       SortExec: expr=[tag1@3 ASC,time@4 ASC,__chunk_order@0 ASC]"
-        - "         RecordBatchesExec: batches_groups=2 batches=2 total_rows=9"
+        - "         RecordBatchesExec: chunks=2"
         "###
         );
 

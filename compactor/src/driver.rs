@@ -4,6 +4,7 @@ use chrono::Utc;
 use compactor_scheduler::CompactionJob;
 use data_types::{CompactionLevel, ParquetFile, ParquetFileParams, PartitionId};
 use futures::{stream, StreamExt, TryStreamExt};
+use gossip_compaction::tx::CompactionEventTx;
 use iox_query::exec::query_tracing::send_metrics_to_tracing;
 use observability_deps::tracing::info;
 use parquet_file::ParquetFilePath;
@@ -33,6 +34,7 @@ pub async fn compact(
     partition_timeout: Duration,
     df_semaphore: Arc<InstrumentedAsyncSemaphore>,
     components: &Arc<Components>,
+    gossip_handle: Option<Arc<CompactionEventTx>>,
 ) {
     components
         .compaction_job_stream
@@ -54,6 +56,7 @@ pub async fn compact(
                 partition_timeout,
                 Arc::clone(&df_semaphore),
                 components,
+                gossip_handle.clone(),
             )
         })
         .buffer_unordered(partition_concurrency.get())
@@ -67,6 +70,7 @@ async fn compact_partition(
     partition_timeout: Duration,
     df_semaphore: Arc<InstrumentedAsyncSemaphore>,
     components: Arc<Components>,
+    gossip_handle: Option<Arc<CompactionEventTx>>,
 ) {
     let partition_id = job.partition_id;
     info!(partition_id = partition_id.get(), timeout = ?partition_timeout, "compact partition",);
@@ -86,6 +90,7 @@ async fn compact_partition(
                 components,
                 scratchpad,
                 transmit_progress_signal,
+                gossip_handle,
             )
             .await // errors detected in the CompactionJob update_job_status(), will be handled in the timeout_with_progress_checking
         }
@@ -210,11 +215,13 @@ async fn try_compact_partition(
     components: Arc<Components>,
     scratchpad_ctx: Arc<dyn Scratchpad>,
     transmit_progress_signal: Sender<bool>,
+    gossip_handle: Option<Arc<CompactionEventTx>>,
 ) -> Result<(), DynError> {
     let partition_id = job.partition_id;
     let mut files = components.partition_files_source.fetch(partition_id).await;
     let partition_info = components.partition_info_source.fetch(partition_id).await?;
     let transmit_progress_signal = Arc::new(transmit_progress_signal);
+    let mut last_round_info: Option<RoundInfo> = None;
 
     // loop for each "Round", consider each file in the partition
     // for partitions with a lot of compaction work to do, keeping the work divided into multiple rounds,
@@ -246,6 +253,7 @@ async fn try_compact_partition(
             .round_info_source
             .calculate(
                 Arc::<Components>::clone(&components),
+                last_round_info,
                 &partition_info,
                 files,
             )
@@ -271,6 +279,7 @@ async fn try_compact_partition(
                 let job = job.clone();
                 let branch_span = round_span.child("branch");
                 let round_info = round_info.clone();
+                let gossip_handle = gossip_handle.clone();
 
                 async move {
                     execute_branch(
@@ -283,6 +292,7 @@ async fn try_compact_partition(
                         partition_info,
                         round_info,
                         transmit_progress_signal,
+                        gossip_handle,
                     )
                     .await
                 }
@@ -292,6 +302,7 @@ async fn try_compact_partition(
             .await?;
 
         files.extend(branches_output.into_iter().flatten());
+        last_round_info = Some(round_info);
     }
 }
 
@@ -307,6 +318,7 @@ async fn execute_branch(
     partition_info: Arc<PartitionInfo>,
     round_info: RoundInfo,
     transmit_progress_signal: Arc<Sender<bool>>,
+    gossip_handle: Option<Arc<CompactionEventTx>>,
 ) -> Result<Vec<ParquetFile>, DynError> {
     let files_next: Vec<ParquetFile> = Vec::new();
 
@@ -374,7 +386,7 @@ async fn execute_branch(
         let files_to_delete = chunk
             .iter()
             .flat_map(|plan| plan.input_parquet_files())
-            .collect();
+            .collect::<Vec<_>>();
 
         // Compact & Split
         let created_file_params = run_plans(
@@ -421,12 +433,21 @@ async fn execute_branch(
             Arc::clone(&components),
             job.clone(),
             &saved_parquet_file_state,
-            files_to_delete,
+            &files_to_delete,
             upgrade,
             created_file_params,
             target_level,
         )
         .await?;
+
+        // Broadcast the compaction event to gossip peers.
+        gossip_compaction_complete(
+            gossip_handle.as_deref(),
+            &created_files,
+            &upgraded_files,
+            files_to_delete,
+            target_level,
+        );
 
         // we only need to upgrade files on the first iteration, so empty the upgrade list for next loop.
         upgrade = Vec::new();
@@ -445,6 +466,36 @@ async fn execute_branch(
 
     files_next.extend(files_to_keep);
     Ok(files_next)
+}
+
+/// Broadcast a compaction completion event over gossip.
+fn gossip_compaction_complete(
+    gossip_handle: Option<&CompactionEventTx>,
+    created_files: &[ParquetFile],
+    upgraded_files: &[ParquetFile],
+    deleted_files: Vec<ParquetFile>,
+    target_level: CompactionLevel,
+) {
+    use generated_types::influxdata::iox::catalog::v1 as catalog_proto;
+    use generated_types::influxdata::iox::gossip::v1 as proto;
+
+    let handle = match gossip_handle {
+        Some(v) => v,
+        None => return,
+    };
+
+    let new_files = created_files
+        .iter()
+        .cloned()
+        .map(catalog_proto::ParquetFile::from)
+        .collect::<Vec<_>>();
+
+    handle.broadcast(proto::CompactionEvent {
+        new_files,
+        updated_file_ids: upgraded_files.iter().map(|v| v.id.get()).collect(),
+        deleted_file_ids: deleted_files.iter().map(|v| v.id.get()).collect(),
+        upgraded_target_level: target_level as _,
+    });
 }
 
 /// Compact or split given files
@@ -506,9 +557,6 @@ async fn execute_plan(
     span.set_metadata("reason", plan_ir.reason());
 
     let create = {
-        // Adjust concurrency based on the column count in the partition.
-        let permits = compute_permits(df_semaphore.total_permits(), partition_info.column_count());
-
         // use the address of the plan as a uniq identifier so logs can be matched despite the concurrency.
         let plan_id = format!("{:p}", &plan_ir);
 
@@ -516,7 +564,6 @@ async fn execute_plan(
             partition_id = partition_info.partition_id.get(),
             jobs_running = df_semaphore.holders_acquired(),
             jobs_pending = df_semaphore.holders_pending(),
-            permits_needed = permits,
             permits_acquired = df_semaphore.permits_acquired(),
             permits_pending = df_semaphore.permits_pending(),
             plan_id,
@@ -528,10 +575,10 @@ async fn execute_plan(
         //
         // We guard the DataFusion planning (that doesn't perform any IO) via the semaphore as well in case
         // DataFusion ever starts to pre-allocate buffers during the physical planning. To the best of our
-        // knowledge, this is currently (2023-01-25) not the case but if this ever changes, then we are prepared.
+        // knowledge, this is currently (2023-08-29) not the case but if this ever changes, then we are prepared.
         let permit_span = span.child("acquire_permit");
         let permit = df_semaphore
-            .acquire_many(permits, None)
+            .acquire(None)
             .await
             .expect("semaphore not closed");
         drop(permit_span);
@@ -540,7 +587,6 @@ async fn execute_plan(
             partition_id = partition_info.partition_id.get(),
             column_count = partition_info.column_count(),
             input_files = plan_ir.n_input_files(),
-            permits,
             plan_id,
             "job semaphore acquired",
         );
@@ -630,7 +676,7 @@ async fn update_catalog(
     components: Arc<Components>,
     job: CompactionJob,
     saved_parquet_file_state: &SavedParquetFileState,
-    files_to_delete: Vec<ParquetFile>,
+    files_to_delete: &[ParquetFile],
     files_to_upgrade: Vec<ParquetFile>,
     file_params_to_create: Vec<ParquetFileParams>,
     target_level: CompactionLevel,
@@ -648,7 +694,7 @@ async fn update_catalog(
         .commit
         .commit(
             job,
-            &files_to_delete,
+            files_to_delete,
             &files_to_upgrade,
             &file_params_to_create,
             target_level,
@@ -672,78 +718,4 @@ async fn update_catalog(
         .collect::<Vec<_>>();
 
     Ok((created_file_params, upgraded_files))
-}
-
-// SINGLE_THREADED_COLUMN_COUNT is the number of columns requiring a partition be compacted single threaded.
-const SINGLE_THREADED_COLUMN_COUNT: usize = 100;
-
-// Determine how many permits must be acquired from the concurrency limiter semaphore
-// based on the column count of this job and the total permits (concurrency).
-fn compute_permits(
-    total_permits: usize, // total number of permits (max concurrency)
-    columns: usize,       // column count for this job
-) -> u32 {
-    if columns >= SINGLE_THREADED_COLUMN_COUNT {
-        // this job requires all permits, forcing it to run by itself.
-        return total_permits as u32;
-    }
-
-    // compute the share (linearly scaled) of total permits this job requires
-    let share = columns as f64 / SINGLE_THREADED_COLUMN_COUNT as f64;
-
-    // Square the share so the required permits is non-linearly scaled.
-    // See test cases below for detail, but this makes it extra permissive of low column counts,
-    // but still gets to single threaded by SINGLE_THREADED_COLUMN_COUNT.
-    let permits = total_permits as f64 * share * share;
-
-    if permits < 1.0 {
-        return 1;
-    }
-
-    permits as u32
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn concurrency_limits() {
-        assert_eq!(compute_permits(100, 1), 1); // 1 column still takes 1 permit
-        assert_eq!(compute_permits(100, SINGLE_THREADED_COLUMN_COUNT / 10), 1); // 10% of the max column count takes 1% of total permits
-        assert_eq!(
-            compute_permits(100, SINGLE_THREADED_COLUMN_COUNT * 2 / 10),
-            4
-        ); // 20% of the max column count takes 4% of total permits
-        assert_eq!(
-            compute_permits(100, SINGLE_THREADED_COLUMN_COUNT * 3 / 10),
-            9
-        ); // 30% of the max column count takes 9% of total permits
-        assert_eq!(
-            compute_permits(100, SINGLE_THREADED_COLUMN_COUNT * 4 / 10),
-            16
-        ); // 40% of the max column count takes 16% of total permits
-        assert_eq!(
-            compute_permits(100, SINGLE_THREADED_COLUMN_COUNT * 5 / 10),
-            25
-        ); // 50% of the max column count takes 25% of total permits
-        assert_eq!(
-            compute_permits(100, SINGLE_THREADED_COLUMN_COUNT * 6 / 10),
-            36
-        ); // 60% of the max column count takes 36% of total permits
-        assert_eq!(
-            compute_permits(100, SINGLE_THREADED_COLUMN_COUNT * 7 / 10),
-            49
-        ); // 70% of the max column count takes 49% of total permits
-        assert_eq!(
-            compute_permits(100, SINGLE_THREADED_COLUMN_COUNT * 8 / 10),
-            64
-        ); // 80% of the max column count takes 64% of total permits
-        assert_eq!(
-            compute_permits(100, SINGLE_THREADED_COLUMN_COUNT * 9 / 10),
-            81
-        ); // 90% of the max column count takes 81% of total permits
-        assert_eq!(compute_permits(100, SINGLE_THREADED_COLUMN_COUNT), 100); // 100% of the max column count takes 100% of total permits
-        assert_eq!(compute_permits(100, 10000), 100); // huge column count takes exactly all permits (not more than the total)
-    }
 }

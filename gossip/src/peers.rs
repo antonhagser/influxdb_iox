@@ -1,9 +1,10 @@
 use std::{future, io, net::SocketAddr};
 
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{stream::FuturesUnordered, Future, StreamExt};
 use hashbrown::{hash_map::RawEntryMut, HashMap};
 use metric::U64Counter;
 use prost::bytes::Bytes;
+use rand::seq::SliceRandom;
 use tokio::net::UdpSocket;
 use tracing::{info, trace, warn};
 use uuid::Uuid;
@@ -11,20 +12,16 @@ use uuid::Uuid;
 use crate::{
     metric::{SentBytes, SentFrames},
     topic_set::{Topic, TopicSet},
-    MAX_FRAME_BYTES, MAX_PING_UNACKED,
+    BroadcastType, MAX_FRAME_BYTES, MAX_PING_UNACKED,
 };
 
-/// A unique generated identity containing 128 bits of randomness (V4 UUID).
-#[derive(Debug, Eq, Clone)]
-pub(crate) struct Identity(Bytes, Uuid);
+/// A fractional value between 0 and 1 that specifies the proportion of cluster
+/// members a subset broadcast is sent to.
+const SUBSET_FRACTION: f32 = 0.33;
 
-impl std::ops::Deref for Identity {
-    type Target = Uuid;
-
-    fn deref(&self) -> &Self::Target {
-        &self.1
-    }
-}
+/// A unique peer identity containing 128 bits of randomness (V4 UUID).
+#[derive(Debug, Eq, Clone, PartialEq)]
+pub struct Identity(Bytes);
 
 impl std::hash::Hash for Identity {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -32,16 +29,9 @@ impl std::hash::Hash for Identity {
     }
 }
 
-impl PartialEq for Identity {
-    fn eq(&self, other: &Self) -> bool {
-        debug_assert!((self.1 == other.1) == (self.0 == other.0));
-        self.0 == other.0
-    }
-}
-
 impl std::fmt::Display for Identity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.1.fmt(f)
+        self.as_uuid().fmt(f)
     }
 }
 
@@ -49,8 +39,9 @@ impl TryFrom<Bytes> for Identity {
     type Error = uuid::Error;
 
     fn try_from(value: Bytes) -> Result<Self, Self::Error> {
-        let uuid = Uuid::from_slice(&value)?;
-        Ok(Self(value, uuid))
+        // Validate bytes are a UUID
+        Uuid::from_slice(&value)?;
+        Ok(Self(value))
     }
 }
 
@@ -58,8 +49,9 @@ impl TryFrom<Vec<u8>> for Identity {
     type Error = uuid::Error;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        let uuid = Uuid::from_slice(&value)?;
-        Ok(Self(Bytes::from(value), uuid))
+        // Validate bytes
+        Uuid::from_slice(&value)?;
+        Ok(Self(Bytes::from(value)))
     }
 }
 
@@ -67,11 +59,16 @@ impl Identity {
     /// Generate a new random identity.
     pub(crate) fn new() -> Self {
         let id = Uuid::new_v4();
-        Self(Bytes::from(id.as_bytes().to_vec()), id)
+        Self(Bytes::from(id.as_bytes().to_vec()))
     }
 
     pub(crate) fn as_bytes(&self) -> &Bytes {
         &self.0
+    }
+
+    /// Parse this identity into a UUID.
+    pub fn as_uuid(&self) -> Uuid {
+        Uuid::from_slice(&self.0).unwrap()
     }
 }
 
@@ -136,6 +133,10 @@ impl Peer {
     pub(crate) fn mark_observed(&mut self) {
         self.unacked_ping_count = 0;
     }
+
+    pub(crate) fn addr(&self) -> SocketAddr {
+        self.addr
+    }
 }
 
 impl From<&Peer> for crate::proto::Peer {
@@ -187,8 +188,8 @@ impl PeerList {
     }
 
     /// Return the UUIDs of all known peers.
-    pub(crate) fn peer_uuids(&self) -> Vec<Uuid> {
-        self.list.keys().map(|v| **v).collect()
+    pub(crate) fn peer_identities(&self) -> Vec<Identity> {
+        self.list.keys().cloned().collect()
     }
 
     /// Returns an iterator of all known peers in the peer list.
@@ -199,6 +200,11 @@ impl PeerList {
     /// Returns true if `identity` is already in the peer list.
     pub(crate) fn contains(&self, identity: &Identity) -> bool {
         self.list.contains_key(identity)
+    }
+
+    /// Returns the [`Peer`] for the provided [`Identity`], if any.
+    pub(crate) fn get(&self, identity: &Identity) -> Option<&Peer> {
+        self.list.get(identity)
     }
 
     /// Upsert a peer identified by `identity` to the peer list, associating it
@@ -247,27 +253,44 @@ impl PeerList {
         frames_sent: &SentFrames,
         bytes_sent: &SentBytes,
         topic: Option<Topic>,
+        subset: BroadcastType,
     ) {
-        self.list
-            .values()
-            .filter_map(|v| {
-                if let Some(topic) = topic {
-                    if !v.interests.is_interested(topic) {
-                        return None;
-                    }
-                    trace!(
-                        identity = %v.identity,
-                        peer_addr=%v.addr,
-                        ?topic,
-                        "sending to peer interested in broadcast topic"
-                    );
-                }
+        // Depending on the request, this message should either be sent to all
+        // peers, or a random subset.
+        match subset {
+            BroadcastType::AllPeers => {
+                self.list
+                    .values()
+                    .filter_map(|v| filtered_send(topic, v, buf, socket, frames_sent, bytes_sent))
+                    .collect::<FuturesUnordered<_>>()
+                    .for_each(|_| future::ready(()))
+                    .await
+            }
+            BroadcastType::PeerSubset => {
+                // Generate a list of futures that send the payload to candidate
+                // peers that are interested in this topic (if any).
+                let mut candidates = self
+                    .list
+                    .values()
+                    .filter_map(|v| filtered_send(topic, v, buf, socket, frames_sent, bytes_sent))
+                    .collect::<Vec<_>>();
 
-                Some(v.send(buf, socket, frames_sent, bytes_sent))
-            })
-            .collect::<FuturesUnordered<_>>()
-            .for_each(|_| future::ready(()))
-            .await;
+                // Figure out how many interested peers to send this payload to.
+                let n = (candidates.len() as f32 * SUBSET_FRACTION).ceil() as usize;
+
+                // Shuffle the candidate list
+                candidates.shuffle(&mut rand::thread_rng());
+
+                // And execute the first N futures to send the payload to random
+                // peers.
+                candidates
+                    .into_iter()
+                    .take(n)
+                    .collect::<FuturesUnordered<_>>()
+                    .for_each(|_| future::ready(()))
+                    .await
+            }
+        };
     }
 
     /// Send PING frames to all known nodes, and remove any that have not
@@ -283,8 +306,15 @@ impl PeerList {
         //
         // If a peer has exceeded the allowed maximum, it will be removed next,
         // but if it responds to this PING, it will be re-added again.
-        self.broadcast(ping_frame, socket, frames_sent, bytes_sent, None)
-            .await;
+        self.broadcast(
+            ping_frame,
+            socket,
+            frames_sent,
+            bytes_sent,
+            None,
+            BroadcastType::AllPeers,
+        )
+        .await;
 
         // Increment the PING counts and remove all peers that have not
         // responded to more than the allowed number of PINGs.
@@ -299,6 +329,30 @@ impl PeerList {
             self.metric_peer_removed_count.inc(1);
         }
     }
+}
+
+/// Send `buf` to `peer`, optionally applying a topic filter.
+fn filtered_send<'a>(
+    topic: Option<Topic>,
+    peer: &'a Peer,
+    buf: &'a [u8],
+    socket: &'a UdpSocket,
+    frames_sent: &'a SentFrames,
+    bytes_sent: &'a SentBytes,
+) -> Option<impl Future<Output = Result<usize, io::Error>> + 'a> {
+    if let Some(topic) = topic {
+        if !peer.interests.is_interested(topic) {
+            return None;
+        }
+        trace!(
+            identity = %peer.identity,
+            peer_addr=%peer.addr,
+            ?topic,
+            "selected interested peer as candidate for broadcast"
+        );
+    }
+
+    Some(peer.send(buf, socket, frames_sent, bytes_sent))
 }
 
 #[cfg(test)]
@@ -348,12 +402,19 @@ mod tests {
         let text = v.to_string();
 
         let uuid = Uuid::try_parse(&text).expect("display impl should output valid uuids");
-        assert_eq!(*v, uuid);
+        assert_eq!(v.as_uuid(), uuid);
     }
 
     fn hash_identity(v: &Identity) -> u64 {
         let mut h = DefaultHasher::default();
         v.hash(&mut h);
         h.finish()
+    }
+
+    #[test]
+    #[allow(clippy::assertions_on_constants)]
+    fn test_subset_fraction() {
+        // This would be silly.
+        assert!(SUBSET_FRACTION < 1.0);
     }
 }

@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use data_types::{CompactionLevel, ParquetFile};
+use data_types::{CompactionLevel, ParquetFile, TransitionPartitionId};
 
 use crate::{
     components::{
@@ -142,6 +142,7 @@ where
                 max_num_files_to_group,
                 max_total_file_size_to_group,
             } => file_classification_for_many_files(
+                partition_info.partition_id(),
                 *max_total_file_size_to_group,
                 *max_num_files_to_group,
                 files_to_compact,
@@ -163,11 +164,15 @@ where
                 }
             }
 
-            RoundInfo::VerticalSplit { split_times } => {
-                file_classification_for_vertical_split(split_times, files_to_compact)
-            }
+            RoundInfo::VerticalSplit { split_times } => file_classification_for_vertical_split(
+                split_times,
+                files_to_compact,
+                partition_info.partition_id(),
+            ),
 
             RoundInfo::TargetLevel { target_level, .. } => {
+                let partition_id = partition_info.partition_id();
+
                 // Split files into files_to_compact, files_to_upgrade, and files_to_keep
                 //
                 // Since output of one compaction is used as input of next compaction, all files that are not
@@ -176,19 +181,25 @@ where
                 // Split actual files to compact from its higher-target-level files
                 // The higher-target-level files are kept for next round of compaction
                 let target_level = *target_level;
-                let (files_to_compact, mut files_to_keep) = self
-                    .target_level_split
-                    .apply(files_to_compact, target_level);
+                let (files_to_compact, mut files_to_keep) = self.target_level_split.apply(
+                    files_to_compact,
+                    target_level,
+                    partition_id.clone(),
+                );
 
                 // To have efficient compaction performance, we do not need to compact eligible non-overlapped files
                 // Find eligible non-overlapped files and keep for next round of compaction
-                let (files_to_compact, non_overlapping_files) =
-                    self.non_overlap_split.apply(files_to_compact, target_level);
+                let (files_to_compact, non_overlapping_files) = self.non_overlap_split.apply(
+                    files_to_compact,
+                    target_level,
+                    partition_id.clone(),
+                );
                 files_to_keep.extend(non_overlapping_files);
 
                 // To have efficient compaction performance, we only need to upgrade (catalog update only) eligible files
                 let (files_to_compact, files_to_upgrade) =
-                    self.upgrade_split.apply(files_to_compact, target_level);
+                    self.upgrade_split
+                        .apply(files_to_compact, target_level, partition_id);
 
                 // See if we need to split start-level files due to over compaction size limit
                 let (files_to_split_or_compact, other_files) =
@@ -207,12 +218,101 @@ where
                     files_to_keep,
                 }
             }
+
+            RoundInfo::CompactRanges {
+                max_num_files_to_group,
+                max_total_file_size_to_group,
+                ..
+            } => {
+                let partition_id = partition_info.partition_id();
+
+                let l0_count = files_to_compact
+                    .iter()
+                    .filter(|f| f.compaction_level == CompactionLevel::Initial)
+                    .count();
+
+                if l0_count > *max_num_files_to_group {
+                    // Too many L0s, do manySmallFiles within this range.
+                    let (files_to_compact, mut files_to_keep) = files_to_compact
+                        .into_iter()
+                        .partition(|f| f.compaction_level == CompactionLevel::Initial);
+
+                    let l0_classification = file_classification_for_many_files(
+                        partition_id.clone(),
+                        *max_total_file_size_to_group,
+                        *max_num_files_to_group,
+                        files_to_compact,
+                        CompactionLevel::Initial,
+                    );
+
+                    files_to_keep.extend(l0_classification.files_to_keep);
+
+                    assert!(
+                        !l0_classification.files_to_make_progress_on.is_empty(),
+                        "L0 files_to_make_progress_on should not be empty, for partition {}",
+                        partition_id
+                    );
+                    FileClassification {
+                        target_level: l0_classification.target_level,
+                        files_to_make_progress_on: l0_classification.files_to_make_progress_on,
+                        files_to_keep,
+                    }
+                } else {
+                    // There's not too many L0s, so upgrade/split/compact as required to get L0s->L1.
+                    let target_level = CompactionLevel::FileNonOverlapped;
+                    let (files_to_compact, mut files_to_keep) = self.target_level_split.apply(
+                        files_to_compact,
+                        target_level,
+                        partition_id.clone(),
+                    );
+
+                    // To have efficient compaction performance, we do not need to compact eligible non-overlapped files
+                    // Find eligible non-overlapped files and keep for next round of compaction
+                    let (files_to_compact, non_overlapping_files) = self.non_overlap_split.apply(
+                        files_to_compact,
+                        target_level,
+                        partition_id.clone(),
+                    );
+                    files_to_keep.extend(non_overlapping_files);
+
+                    // To have efficient compaction performance, we only need to upgrade (catalog update only) eligible files
+                    let (files_to_compact, files_to_upgrade) =
+                        self.upgrade_split
+                            .apply(files_to_compact, target_level, partition_id);
+
+                    // See if we need to split start-level files due to over compaction size limit
+                    let (files_to_split_or_compact, other_files) =
+                        self.split_or_compact
+                            .apply(partition_info, files_to_compact, target_level);
+                    files_to_keep.extend(other_files);
+
+                    let files_to_make_progress_on = FilesForProgress {
+                        upgrade: files_to_upgrade,
+                        split_or_compact: files_to_split_or_compact,
+                    };
+
+                    assert!(
+                        !files_to_make_progress_on.is_empty(),
+                        "files_to_make_progress_on should not be empty, for partition {}",
+                        partition_info.partition_id()
+                    );
+                    FileClassification {
+                        target_level,
+                        files_to_make_progress_on,
+                        files_to_keep,
+                    }
+                }
+            }
         }
     }
 }
 
 // ManySmallFiles assumes the L0 files are tiny and aims to do L0-> L0 compaction to reduce the number of tiny files.
+// With vertical splitting, this only operates on a CompactionRange that's up to the max_compact_size.  So while there's
+// many files, we know there's not many bytes (in total).  Because of this, We can skip anything that's a sizeable portion
+// of the max_compact_size, knowing that we can still get the L0 quantity down to max_num_files_to_group.
 fn file_classification_for_many_files(
+    partition: TransitionPartitionId,
     max_total_file_size_to_group: usize,
     max_num_files_to_group: usize,
     files: Vec<ParquetFile>,
@@ -220,38 +320,69 @@ fn file_classification_for_many_files(
 ) -> FileClassification {
     // Verify all input files are in the target_level
     let err_msg = format!(
-        "All files to compact must be in {target_level} level, but found files in other levels",
+        "all files to compact must be in {target_level} level, but found files in other levels",
     );
 
     assert!(
         files.iter().all(|f| f.compaction_level == target_level),
-        "{err_msg}"
+        "{err_msg}, partition_id {}",
+        partition,
     );
 
     let mut files_to_compact = vec![];
     let mut files_to_keep: Vec<ParquetFile> = vec![];
 
+    // The goal is to compact the small files without repeately rewriting the non-small files (that hurts write amp).
+    // Assume tiny files separated by non-tiny files, we need to get down to max_num_files_to_group.
+    // So compute the biggest files we can skip, and still be guaranteed to get down to max_num_files_to_group.
+    let skip_size = max_total_file_size_to_group * 2 / max_num_files_to_group;
+
     // Enforce max_num_files_to_group
     if files.len() > max_num_files_to_group {
         let ordered_files = order_files(files, target_level.prev());
 
-        ordered_files
-            .chunks(max_num_files_to_group)
-            .for_each(|chunk| {
-                let this_chunk_bytes: usize =
-                    chunk.iter().map(|f| f.file_size_bytes as usize).sum();
-                if this_chunk_bytes > max_total_file_size_to_group {
-                    // This chunk of files are plenty big and don't fit the ManySmallFiles characteristics.
-                    // If we let ManySmallFiles handle them, it may get stuck with unproductive compactions.
-                    // So set them aside for later (when we're not in ManySmallFiles mode).
-                    files_to_keep.append(chunk.to_vec().as_mut());
-                } else if files_to_compact.is_empty() {
+        let mut chunk_bytes: usize = 0;
+        let mut chunk: Vec<ParquetFile> = Vec::with_capacity(max_num_files_to_group);
+        for f in ordered_files {
+            if !files_to_compact.is_empty() {
+                // We've already got a batch of files to compact, this can wait.
+                files_to_keep.push(f);
+            } else if chunk_bytes + f.file_size_bytes as usize > max_total_file_size_to_group
+                || chunk.len() + 1 > max_num_files_to_group
+                || f.file_size_bytes >= skip_size as i64
+            {
+                // This file will not be included in this compaction.
+                files_to_keep.push(f);
+                if chunk.len() > 1 {
+                    // Several files; we'll do an L0->L0 comapction on them.
                     files_to_compact = chunk.to_vec();
-                } else {
-                    // We've already got a batch of files to compact, these can wait.
+                    chunk = Vec::with_capacity(max_num_files_to_group);
+                } else if !chunk.is_empty() {
+                    // Just one file, and we don't want to compact it with 'f', so skip it.
                     files_to_keep.append(chunk.to_vec().as_mut());
+                    chunk = Vec::with_capacity(max_num_files_to_group);
                 }
-            });
+            } else {
+                // This files goes in our draft chunk to compact
+                chunk_bytes += f.file_size_bytes as usize;
+                chunk.push(f);
+            }
+        }
+        if !chunk.is_empty() {
+            assert!(files_to_compact.is_empty(), "we shouldn't accumulate multiple non-contiguous chunks to compact, but we found non-contiguous chunks in compaction job for partition_id={}", partition);
+            if chunk.len() > 1 {
+                // We need to compact what comes before f
+                files_to_compact = chunk.to_vec();
+            } else if !chunk.is_empty() {
+                files_to_keep.append(chunk.to_vec().as_mut());
+            }
+        }
+
+        assert!(
+            chunk.is_empty() || chunk.len() > 1,
+            "should not have only 1 chunk, for partition {}",
+            partition
+        );
     } else {
         files_to_compact = files;
     }
@@ -276,6 +407,7 @@ fn file_classification_for_many_files(
 fn file_classification_for_vertical_split(
     split_times: &[i64],
     files: Vec<ParquetFile>,
+    partition: TransitionPartitionId,
 ) -> FileClassification {
     let target_level = CompactionLevel::Initial;
     let files_to_keep: Vec<ParquetFile> = vec![];
@@ -293,7 +425,7 @@ fn file_classification_for_vertical_split(
 
         assert!(
             !this_file_splits.is_empty(),
-            "files not needing split should be filtered out"
+            "files not needing split should be filtered out, instead found to-compact file (not to-split) in partition {}", partition
         );
 
         let file_to_split = FileToSplit {

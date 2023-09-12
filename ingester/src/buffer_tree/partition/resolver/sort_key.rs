@@ -44,15 +44,20 @@ impl SortKeyResolver {
                     .create_or_get(self.partition_key.clone(), self.table_id)
                     .await?;
 
+                let (p_sort_key, p_sort_key_ids) =
+                    (partition.sort_key(), partition.sort_key_ids_none_if_empty());
+
                 // fetch partition's table columns
                 let columns = repos.columns().list_by_table_id(self.table_id).await?;
 
                 // build sort_key from sort_key_ids and columns
-                let sort_key_ids = partition.sort_key_ids_none_if_empty();
                 let sort_key =
-                    build_sort_key_from_sort_key_ids_and_columns(&sort_key_ids, &columns);
+                    build_sort_key_from_sort_key_ids_and_columns(&p_sort_key_ids, &columns);
 
-                Result::<_, iox_catalog::interface::Error>::Ok((sort_key, sort_key_ids))
+                // This is here to catch bugs and will be removed once the sort_keyis removed from the partition
+                assert_eq!(sort_key, p_sort_key);
+
+                Result::<_, iox_catalog::interface::Error>::Ok((sort_key, p_sort_key_ids))
             })
             .await
             .expect("retry forever")

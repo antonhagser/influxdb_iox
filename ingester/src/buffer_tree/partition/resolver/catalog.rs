@@ -90,6 +90,10 @@ impl PartitionProvider for CatalogPartitionResolver {
             .await
             .expect("retry forever");
 
+        let p_sort_key = p.sort_key();
+        let p_sort_key_ids = p.sort_key_ids_none_if_empty();
+
+        // fetch columns of the table to build sort_key from sort_key_ids
         let columns = Backoff::new(&self.backoff_config)
             .retry_all_errors("resolve partition's table columns", || {
                 self.get_columns(table_id)
@@ -98,8 +102,10 @@ impl PartitionProvider for CatalogPartitionResolver {
             .expect("retry forever");
 
         // build sort_key from sort_key_ids and columns
-        let sort_key_ids = p.sort_key_ids_none_if_empty();
-        let sort_key = build_sort_key_from_sort_key_ids_and_columns(&sort_key_ids, &columns);
+        let sort_key = build_sort_key_from_sort_key_ids_and_columns(&p_sort_key_ids, &columns);
+
+        // This is here to catch bugs and will be removed once the sort_keyis removed from the partition
+        assert_eq!(sort_key, p_sort_key);
 
         Arc::new(Mutex::new(PartitionData::new(
             p.transition_partition_id(),
@@ -111,7 +117,7 @@ impl PartitionProvider for CatalogPartitionResolver {
             namespace_name,
             table_id,
             table,
-            SortKeyState::Provided(sort_key, sort_key_ids),
+            SortKeyState::Provided(sort_key, p_sort_key_ids),
         )))
     }
 }

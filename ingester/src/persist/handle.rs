@@ -665,6 +665,7 @@ mod tests {
         };
         // Ensure the key is resolved.
         assert_matches!(loader.get_sort_key().await, None);
+        assert_matches!(loader.get_sort_key_ids().await, None);
 
         // Enqueue it
         let notify = handle.enqueue(p, data).await;

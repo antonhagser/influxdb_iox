@@ -199,7 +199,10 @@ fn build_gapfill_node(
         col(new_aggr_plan.schema().fields()[date_bin_gapfill_index].qualified_column());
 
     let LogicalPlan::Aggregate(aggr) = &new_aggr_plan else {
-        return Err(DataFusionError::Internal(format!("Expected Aggregate plan, got {}", new_aggr_plan.display())));
+        return Err(DataFusionError::Internal(format!(
+            "Expected Aggregate plan, got {}",
+            new_aggr_plan.display()
+        )));
     };
     let mut new_group_expr: Vec<_> = aggr
         .schema
@@ -304,7 +307,7 @@ fn replace_date_bin_gapfill(group_expr: &[Expr]) -> Result<Option<RewriteInfo>> 
                 DATE_BIN_GAPFILL_UDF_NAME,
             ) {
                 return Err(DataFusionError::Plan(
-                    "DATE_BIN_GAPFILL must a top-level expression in the GROUP BY clause when gap filling. It cannot be part of another expression or cast".to_string(),
+                    "DATE_BIN_GAPFILL must be a top-level expression in the GROUP BY clause when gap filling. It cannot be part of another expression or cast".to_string(),
                 ));
             }
         }
@@ -411,7 +414,7 @@ fn handle_projection(proj: &Projection) -> Result<Option<LogicalPlan>> {
     }) else {
         // If this is not a projection that is a parent to a GapFill node,
         // then there is nothing to do.
-        return Ok(None)
+        return Ok(None);
     };
 
     let mut fill_fn_rewriter = FillFnRewriter {

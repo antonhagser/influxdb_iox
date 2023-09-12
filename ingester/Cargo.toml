@@ -42,7 +42,7 @@ sharder = { version = "0.1.0", path = "../sharder" }
 test_helpers = { path = "../test_helpers", features = [
     "future_timeout",
 ], optional = true }
-thiserror = "1.0.47"
+thiserror = "1.0.48"
 tracker = { path = "../tracker" }
 tokio = { version = "1.32", features = [
     "macros",
@@ -58,6 +58,7 @@ uuid = "1.4.1"
 wal = { version = "0.1.0", path = "../wal" }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 gossip = { version = "0.1.0", path = "../gossip" }
+gossip_parquet_file = { version = "0.1.0", path = "../gossip_parquet_file" }
 
 [dev-dependencies]
 assert_matches = "1.5.0"

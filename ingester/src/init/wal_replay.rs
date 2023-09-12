@@ -124,9 +124,7 @@ where
                     "dropping empty wal segment",
                 );
 
-                // TODO(test): empty WAL replay
-
-                // A failure to delete an empty file should not prevent WAL
+                // A failure to delete an empty file MUST not prevent WAL
                 // replay from continuing.
                 if let Err(error) = wal.delete(file.id()).await {
                     error!(
@@ -205,7 +203,7 @@ where
                 Op::Persist(_) => unreachable!(),
             };
 
-            let mut op_min_sequence_number = None;
+            let mut op_min_sequence_number: Option<SequenceNumber> = None;
             let mut op_max_sequence_number = None;
 
             // Reconstruct the ingest operation
@@ -232,8 +230,10 @@ where
                         );
 
                         max_sequence = max_sequence.max(Some(sequence_number));
-                        op_min_sequence_number = op_min_sequence_number.min(Some(sequence_number));
-                        op_max_sequence_number = op_min_sequence_number.max(Some(sequence_number));
+                        op_min_sequence_number = op_min_sequence_number
+                            .map(|prev_sequence_number| prev_sequence_number.min(sequence_number))
+                            .or(Some(sequence_number));
+                        op_max_sequence_number = op_max_sequence_number.max(Some(sequence_number));
 
                         (
                             table_id,
@@ -248,12 +248,8 @@ where
 
             debug!(
                 ?op,
-                op_min_sequence_number = op_min_sequence_number
-                    .expect("attempt to apply unsequenced wal op")
-                    .get(),
-                op_max_sequence_number = op_max_sequence_number
-                    .expect("attempt to apply unsequenced wal op")
-                    .get(),
+                ?op_min_sequence_number,
+                ?op_max_sequence_number,
                 "apply wal op"
             );
 
@@ -383,7 +379,8 @@ mod tests {
 
         // The write portion of this test.
         //
-        // Write two ops, rotate the file, and write a third op.
+        // Write two ops, rotate the file twice (ensuring an empty file is
+        // handled ok), write a third op and finally an empty op.
         {
             let inner = Arc::new(MockDmlSink::default().with_apply_return(vec![
                 Ok(()),
@@ -416,6 +413,10 @@ mod tests {
             // Rotate the log file
             wal.rotate().expect("failed to rotate WAL file");
 
+            // Rotate the log file again, in order to create an empty segment and ensure
+            // replay is tolerant to it
+            wal.rotate().expect("failed to rotate WAL file");
+
             // Write the third op
             wal_sink
                 .apply(IngestOp::Write(op3.clone()))
@@ -437,7 +438,8 @@ mod tests {
             .await
             .expect("failed to initialise WAL");
 
-        assert_eq!(wal.closed_segments().len(), 2);
+        // Must be 3 segments, 1 OK, 1 Empty and 1 with a normal op and blank op
+        assert_eq!(wal.closed_segments().len(), 3);
 
         // Initialise the mock persist system
         let persist = Arc::new(MockPersistQueue::default());
@@ -499,7 +501,7 @@ mod tests {
             .join()
             .await;
 
-        // Ensure the replayed segments were dropped
+        // Ensure the replayed segments were dropped, including the empty one
         let wal = Wal::new(dir.path())
             .await
             .expect("failed to initialise WAL");
@@ -513,7 +515,7 @@ mod tests {
             .get_observer(&Attributes::from([]))
             .expect("attributes not found")
             .fetch();
-        assert_eq!(files, 2);
+        assert_eq!(files, 3);
         let ops = metrics
             .get_instrument::<Metric<U64Counter>>("ingester_wal_replay_ops")
             .expect("file counter not found")

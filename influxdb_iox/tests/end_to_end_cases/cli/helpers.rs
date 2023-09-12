@@ -260,6 +260,19 @@ impl NamespaceCmd {
                 expected_output = BoxPredicate::new(expected_output.and(predicate::str::contains(
                     format!(r#""maxColumnsPerTable": {expected_max_columns_per_table}"#),
                 )));
+
+                match self.partition_template.clone() {
+                    Some(_) => {
+                        expected_output = BoxPredicate::new(expected_output.and(
+                            predicate::str::contains(r#""partitionTemplate":"#.to_string()),
+                        ));
+                    }
+                    None => {
+                        expected_output = BoxPredicate::new(expected_output.and(
+                            predicate::str::contains(r#""partitionTemplate":"#.to_string()).not(),
+                        ));
+                    }
+                };
             }
         }
 
