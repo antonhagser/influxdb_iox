@@ -76,6 +76,10 @@ pub enum Error {
     #[error("failed to parse line protocol: {0}")]
     ParseLineProtocol(mutable_batch_lp::Error),
 
+    /// Partial write request, with itemized error.
+    #[error("write was partially successful, with the following partial rejections: {0}")]
+    PartialWriteError(mutable_batch_lp::Error),
+
     /// An error returned from the [`DmlHandler`].
     #[error("dml handler error: {0}")]
     DmlHandler(#[from] DmlError),
@@ -113,6 +117,7 @@ impl Error {
             Error::NonUtf8ContentHeader(_) => StatusCode::BAD_REQUEST,
             Error::NonUtf8Body(_) => StatusCode::BAD_REQUEST,
             Error::ParseLineProtocol(_) => StatusCode::BAD_REQUEST,
+            Error::PartialWriteError(_) => StatusCode::BAD_REQUEST,
             Error::RequestSizeExceeded(_) => StatusCode::PAYLOAD_TOO_LARGE,
             Error::InvalidContentEncoding(_) => {
                 // https://www.rfc-editor.org/rfc/rfc7231#section-6.5.13
@@ -138,6 +143,10 @@ impl Error {
     pub fn get_message(&self) -> String {
         match self {
             Self::ParseLineProtocol(e) => e.to_message(),
+            Self::PartialWriteError(e) => format!(
+                "write was partially successful, with the following partial rejections: {}",
+                e.to_message()
+            ),
             _ => self.to_string(),
         }
     }
@@ -148,7 +157,8 @@ impl Error {
     /// means no additional payload (beyond the code and message).
     pub fn get_body(&self) -> StdHashMap<String, serde_json::Value> {
         match self {
-            Self::ParseLineProtocol(mutable_batch_lp::Error::PerLine { lines }) => {
+            Self::ParseLineProtocol(mutable_batch_lp::Error::PerLine { lines })
+            | Self::PartialWriteError(mutable_batch_lp::Error::PerLine { lines }) => {
                 let mut values = StdHashMap::<String, serde_json::Value>::default();
                 values.insert(
                     "line_errors".into(),
@@ -375,15 +385,24 @@ where
         let default_time = self.time_provider.now().timestamp_nanos();
         let start_instant = Instant::now();
 
-        let mut converter = LinesConverter::new(default_time);
+        let permit_partial_write = write_info.reject_data_per_line;
+
+        let mut converter = LinesConverter::new(default_time, permit_partial_write);
         converter.set_timestamp_base(write_info.precision.timestamp_base());
-        let (batches, stats) = match converter.write_lp(body).and_then(|_| converter.finish()) {
+
+        let itemized_line_errors = match converter.write_lp(body) {
+            Ok(_) => vec![],
+            Err(mutable_batch_lp::Error::PerLine { lines }) if permit_partial_write => lines,
+            Err(e) => return Err(Error::ParseLineProtocol(e)),
+        };
+
+        let (batches, stats) = match converter.finish() {
             Ok(v) => v,
             Err(e) if matches!(e, mutable_batch_lp::Error::EmptyPayload) => {
                 debug!("nothing to write");
                 return Ok(());
             }
-            Err(line_errors) => return Err(Error::ParseLineProtocol(line_errors)),
+            Err(e) => return Err(Error::ParseLineProtocol(e)),
         };
 
         let num_tables = batches.len();
@@ -416,7 +435,13 @@ where
         self.write_metric_tables.inc(num_tables as _);
         self.write_metric_body_size.inc(body.len() as _);
 
-        Ok(())
+        if !itemized_line_errors.is_empty() {
+            Err(Error::PartialWriteError(mutable_batch_lp::Error::PerLine {
+                lines: itemized_line_errors,
+            }))
+        } else {
+            Ok(())
+        }
     }
 
     /// Parse the request's body into raw bytes, applying the configured size
@@ -1499,6 +1524,29 @@ mod tests {
                 ]
             }),
             "failed to parse line protocol: \
+            errors encountered on 3 lines:\
+            \nerror parsing line 42 (1-based): No fields were provided\
+            \ntimestamp overflows i64 on line 43 (1-based)\
+            \nerror writing line 44 (1-based): the field 'bananas' is specified more than once with conflicting types",
+        ),
+
+        (
+            PartialWriteError(mutable_batch_lp::Error::PerLine {
+                lines: vec![
+                    mutable_batch_lp::LineError::LineProtocol {
+                        source: influxdb_line_protocol::Error::FieldSetMissing,
+                        line: 42,
+                    },
+                    mutable_batch_lp::LineError::TimestampOverflow { line: 43 },
+                    mutable_batch_lp::LineError::Write {
+                        source: mutable_batch_lp::LineWriteError::ConflictedFieldTypes {
+                            name: "bananas".into(),
+                        },
+                        line: 44,
+                    },
+                ]
+            }),
+            "write was partially successful, with the following partial rejections: \
             errors encountered on 3 lines:\
             \nerror parsing line 42 (1-based): No fields were provided\
             \ntimestamp overflows i64 on line 43 (1-based)\

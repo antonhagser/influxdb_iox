@@ -16,7 +16,7 @@ fn bench_write_line(c: &mut Criterion) {
     group.throughput(Throughput::Elements(lines as _));
     group.bench_function("metrics.lp", |b| {
         b.iter_batched(
-            || LinesConverter::new(42),
+            || LinesConverter::new(42, false),
             |mut converter| {
                 converter.write_lp(&lp).unwrap();
             },

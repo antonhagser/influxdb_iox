@@ -129,16 +129,20 @@ pub struct LinesConverter {
     stats: PayloadStatistics,
     /// The current batches
     batches: HashMap<String, MutableBatch>,
+    /// Rejecting data per line (a.k.a. partial writes) enable
+    /// parsing line errors to not abort the entire write.
+    partial_write: bool,
 }
 
 impl LinesConverter {
     /// Create a new [`LinesConverter`]
-    pub fn new(default_time: i64) -> Self {
+    pub fn new(default_time: i64, partial_write: bool) -> Self {
         Self {
             default_time,
             timestamp_base: 1,
             stats: Default::default(),
             batches: Default::default(),
+            partial_write,
         }
     }
 
@@ -167,11 +171,7 @@ impl LinesConverter {
     ///     [`mutable_batch::writer::Error::TypeMismatch`]
     ///
     pub fn write_lp(&mut self, lines: &str) -> Result<()> {
-        // TODO: next PR will have this be configurable per request.
-        //
-        // Default will be to `abort_on_line_error`, but with an optional
-        // flag `--reject-data-per-line`.
-        let abort_on_line_error = true;
+        let abort_on_line_error = !self.partial_write;
 
         let mut errors: Vec<LineError> = Vec::with_capacity(MAXIMUM_RETURNED_ERRORS);
         let mut add_error = |e: LineError| {
@@ -250,7 +250,7 @@ pub fn lines_to_batches_stats(
     lines: &str,
     default_time: i64,
 ) -> Result<(HashMap<String, MutableBatch>, PayloadStatistics)> {
-    let mut converter = LinesConverter::new(default_time);
+    let mut converter = LinesConverter::new(default_time, false);
     converter.write_lp(lines)?;
     converter.finish()
 }
@@ -479,7 +479,7 @@ mod tests {
         mem,tag1=v5 ival=2i 1
         "#;
 
-        let mut converter = LinesConverter::new(5);
+        let mut converter = LinesConverter::new(5, false);
         let result = converter.write_lp(lp);
         assert_matches!(
             result,
