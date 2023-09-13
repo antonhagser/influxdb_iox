@@ -470,12 +470,17 @@ mod tests {
         {
             let schema = namespace.schema().await;
             // Columns under the limit is ok
-            let batches = lp_to_writes("nonexistent val=42i 123456");
-            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
+            let column_names_by_table =
+                [("nonexistent", BTreeSet::from(["val", "time"]))].into_iter();
+            assert!(validate_schema_limits(column_names_by_table, &schema).is_ok());
             // Columns over the limit is an error
-            let batches = lp_to_writes("nonexistent,tag1=A,tag2=B val=42i 123456");
+            let column_names_by_table = [(
+                "nonexistent",
+                BTreeSet::from(["tag1", "tag2", "val", "time"]),
+            )]
+            .into_iter();
             assert_matches!(
-                validate_schema_limits_of_batches(&batches, &schema),
+                validate_schema_limits(column_names_by_table, &schema),
                 Err(CachedServiceProtectionLimit::Column {
                     table_name: _,
                     existing_column_count: 0,
@@ -490,12 +495,17 @@ mod tests {
             namespace.create_table("no_columns_in_schema").await;
             let schema = namespace.schema().await;
             // Columns under the limit is ok
-            let batches = lp_to_writes("no_columns_in_schema val=42i 123456");
-            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
+            let column_names_by_table =
+                [("no_columns_in_schema", BTreeSet::from(["val", "time"]))].into_iter();
+            assert!(validate_schema_limits(column_names_by_table, &schema).is_ok());
             // Columns over the limit is an error
-            let batches = lp_to_writes("no_columns_in_schema,tag1=A,tag2=B val=42i 123456");
+            let column_names_by_table = [(
+                "no_columns_in_schema",
+                BTreeSet::from(["tag1", "tag2", "val", "time"]),
+            )]
+            .into_iter();
             assert_matches!(
-                validate_schema_limits_of_batches(&batches, &schema),
+                validate_schema_limits(column_names_by_table, &schema),
                 Err(CachedServiceProtectionLimit::Column {
                     table_name: _,
                     existing_column_count: 0,
@@ -510,16 +520,28 @@ mod tests {
             let table = namespace.create_table("i_got_columns").await;
             table.create_column("i_got_music", ColumnType::I64).await;
             let schema = namespace.schema().await;
+
             // Columns already existing is ok
-            let batches = lp_to_writes("i_got_columns i_got_music=42i 123456");
-            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
+            let column_names_by_table =
+                [("i_got_columns", BTreeSet::from(["i_got_music", "time"]))].into_iter();
+            assert!(validate_schema_limits(column_names_by_table, &schema).is_ok());
+
             // Adding columns under the limit is ok
-            let batches = lp_to_writes("i_got_columns,tag1=A i_got_music=42i 123456");
-            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
+            let column_names_by_table = [(
+                "i_got_columns",
+                BTreeSet::from(["tag1", "i_got_music", "time"]),
+            )]
+            .into_iter();
+            assert!(validate_schema_limits(column_names_by_table, &schema).is_ok());
+
             // Adding columns over the limit is an error
-            let batches = lp_to_writes("i_got_columns,tag1=A,tag2=B i_got_music=42i 123456");
+            let column_names_by_table = [(
+                "i_got_columns",
+                BTreeSet::from(["tag1", "tag2", "i_got_music", "time"]),
+            )]
+            .into_iter();
             assert_matches!(
-                validate_schema_limits_of_batches(&batches, &schema),
+                validate_schema_limits(column_names_by_table, &schema),
                 Err(CachedServiceProtectionLimit::Column {
                     table_name: _,
                     existing_column_count: 1,
@@ -538,13 +560,17 @@ mod tests {
                 .create_column(schema::TIME_COLUMN_NAME, ColumnType::Time)
                 .await;
             let schema = namespace.schema().await;
+
             // Columns already existing is allowed
-            let batches = lp_to_writes("bananas greatness=42i 123456");
-            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
+            let column_names_by_table =
+                [("bananas", BTreeSet::from(["greatness", "time"]))].into_iter();
+            assert!(validate_schema_limits(column_names_by_table, &schema).is_ok());
+
             // Adding columns over the limit is an error
-            let batches = lp_to_writes("bananas i_got_music=42i 123456");
+            let column_names_by_table =
+                [("bananas", BTreeSet::from(["i_got_music", "time"]))].into_iter();
             assert_matches!(
-                validate_schema_limits_of_batches(&batches, &schema),
+                validate_schema_limits(column_names_by_table, &schema),
                 Err(CachedServiceProtectionLimit::Column {
                     table_name: _,
                     existing_column_count: 3,
@@ -619,12 +645,15 @@ mod tests {
             let schema = namespace.schema().await;
 
             // Columns already existing is allowed
-            let batches = lp_to_writes("dragonfruit val=42i 123456");
-            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
+            let column_names_by_table =
+                [("dragonfruit", BTreeSet::from(["val", "time"]))].into_iter();
+            assert!(validate_schema_limits(column_names_by_table, &schema).is_ok());
+
             // Adding more columns over the limit is an error
-            let batches = lp_to_writes("dragonfruit i_got_music=42i 123456");
+            let column_names_by_table =
+                [("dragonfruit", BTreeSet::from(["i_got_music", "time"]))].into_iter();
             assert_matches!(
-                validate_schema_limits_of_batches(&batches, &schema),
+                validate_schema_limits(column_names_by_table, &schema),
                 Err(CachedServiceProtectionLimit::Column {
                     table_name: _,
                     existing_column_count: 4,
@@ -644,24 +673,33 @@ mod tests {
         // Creating a table in an empty namespace is OK
         {
             let schema = namespace.schema().await;
-            let batches = lp_to_writes("nonexistent val=42i 123456");
-            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
+            let column_names_by_table =
+                [("nonexistent", BTreeSet::from(["val", "time"]))].into_iter();
+            assert!(validate_schema_limits(column_names_by_table, &schema).is_ok());
         }
 
         // Creating two tables (the limit) is OK
         {
             let schema = namespace.schema().await;
-            let batches = lp_to_writes("nonexistent val=42i 123456\nbananas val=2 42");
-            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
+            let column_names_by_table = [
+                ("nonexistent", BTreeSet::from(["val", "time"])),
+                ("bananas", BTreeSet::from(["val", "time"])),
+            ]
+            .into_iter();
+            assert!(validate_schema_limits(column_names_by_table, &schema).is_ok());
         }
 
         // Creating three tables (above the limit) fails
         {
             let schema = namespace.schema().await;
-            let batches =
-                lp_to_writes("nonexistent val=42i 123456\nbananas val=2 42\nplatanos val=2 42");
+            let column_names_by_table = [
+                ("nonexistent", BTreeSet::from(["val", "time"])),
+                ("bananas", BTreeSet::from(["val", "time"])),
+                ("platanos", BTreeSet::from(["val", "time"])),
+            ]
+            .into_iter();
             assert_matches!(
-                validate_schema_limits_of_batches(&batches, &schema),
+                validate_schema_limits(column_names_by_table, &schema),
                 Err(CachedServiceProtectionLimit::Table {
                     existing_table_count: 0,
                     merged_table_count: 3,
@@ -676,16 +714,25 @@ mod tests {
         // Adding a second table is OK
         {
             let schema = namespace.schema().await;
-            let batches = lp_to_writes("bananas val=2 42\nplatanos val=2 42");
-            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
+            let column_names_by_table = [
+                ("bananas", BTreeSet::from(["val", "time"])),
+                ("platanos", BTreeSet::from(["val", "time"])),
+            ]
+            .into_iter();
+            assert!(validate_schema_limits(column_names_by_table, &schema).is_ok());
         }
 
-        // Adding a third table is rejected OK
+        // Adding a third table is rejected
         {
             let schema = namespace.schema().await;
-            let batches = lp_to_writes("bananas val=2 42\nplatanos val=2 42\nnope v=2 42");
+            let column_names_by_table = [
+                ("bananas", BTreeSet::from(["val", "time"])),
+                ("platanos", BTreeSet::from(["val", "time"])),
+                ("nope", BTreeSet::from(["val", "time"])),
+            ]
+            .into_iter();
             assert_matches!(
-                validate_schema_limits_of_batches(&batches, &schema),
+                validate_schema_limits(column_names_by_table, &schema),
                 Err(CachedServiceProtectionLimit::Table {
                     existing_table_count: 1,
                     merged_table_count: 3,
@@ -710,16 +757,25 @@ mod tests {
             assert_eq!(schema.tables.len(), 2);
             assert_eq!(schema.max_tables.get(), 1);
 
-            let batches = lp_to_writes("bananas val=2 42\nplatanos val=2 42");
-            assert_matches!(validate_schema_limits_of_batches(&batches, &schema), Ok(()));
+            let column_names_by_table = [
+                ("bananas", BTreeSet::from(["val", "time"])),
+                ("platanos", BTreeSet::from(["val", "time"])),
+            ]
+            .into_iter();
+            assert!(validate_schema_limits(column_names_by_table, &schema).is_ok());
         }
 
         // A new table is always rejected.
         {
             let schema = namespace.schema().await;
-            let batches = lp_to_writes("bananas val=2 42\nplatanos val=2 42\nnope v=1 42");
+            let column_names_by_table = [
+                ("bananas", BTreeSet::from(["val", "time"])),
+                ("platanos", BTreeSet::from(["val", "time"])),
+                ("nope", BTreeSet::from(["val", "time"])),
+            ]
+            .into_iter();
             assert_matches!(
-                validate_schema_limits_of_batches(&batches, &schema),
+                validate_schema_limits(column_names_by_table, &schema),
                 Err(CachedServiceProtectionLimit::Table {
                     existing_table_count: 2,
                     merged_table_count: 3,
@@ -729,9 +785,13 @@ mod tests {
         }
         {
             let schema = namespace.schema().await;
-            let batches = lp_to_writes("bananas val=2 42\nnope v=1 42");
+            let column_names_by_table = [
+                ("bananas", BTreeSet::from(["val", "time"])),
+                ("nope", BTreeSet::from(["val", "time"])),
+            ]
+            .into_iter();
             assert_matches!(
-                validate_schema_limits_of_batches(&batches, &schema),
+                validate_schema_limits(column_names_by_table, &schema),
                 Err(CachedServiceProtectionLimit::Table {
                     existing_table_count: 2,
                     merged_table_count: 3,
@@ -741,9 +801,9 @@ mod tests {
         }
         {
             let schema = namespace.schema().await;
-            let batches = lp_to_writes("nope v=1 42");
+            let column_names_by_table = [("nope", BTreeSet::from(["val", "time"]))].into_iter();
             assert_matches!(
-                validate_schema_limits_of_batches(&batches, &schema),
+                validate_schema_limits(column_names_by_table, &schema),
                 Err(CachedServiceProtectionLimit::Table {
                     existing_table_count: 2,
                     merged_table_count: 3,
