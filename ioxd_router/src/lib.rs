@@ -101,14 +101,14 @@ pub enum Error {
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-pub struct RpcWriteRouterServerType<D, N> {
-    server: RpcWriteRouterServer<D, N>,
+pub struct RpcWriteRouterServerType<D, N, C> {
+    server: RpcWriteRouterServer<D, N, C>,
     shutdown: CancellationToken,
     trace_collector: Option<Arc<dyn TraceCollector>>,
 }
 
-impl<D, N> RpcWriteRouterServerType<D, N> {
-    pub fn new(server: RpcWriteRouterServer<D, N>, common_state: &CommonServerState) -> Self {
+impl<D, N, C> RpcWriteRouterServerType<D, N, C> {
+    pub fn new(server: RpcWriteRouterServer<D, N, C>, common_state: &CommonServerState) -> Self {
         Self {
             server,
             shutdown: CancellationToken::new(),
@@ -117,17 +117,18 @@ impl<D, N> RpcWriteRouterServerType<D, N> {
     }
 }
 
-impl<D, N> std::fmt::Debug for RpcWriteRouterServerType<D, N> {
+impl<D, N, C> std::fmt::Debug for RpcWriteRouterServerType<D, N, C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Router")
     }
 }
 
 #[async_trait]
-impl<D, N> ServerType for RpcWriteRouterServerType<D, N>
+impl<D, N, C> ServerType for RpcWriteRouterServerType<D, N, C>
 where
     D: DmlHandler<WriteInput = HashMap<String, MutableBatch>, WriteOutput = ()> + 'static,
     N: NamespaceResolver + 'static,
+    C: NamespaceCache<ReadError = iox_catalog::interface::Error> + 'static,
 {
     fn name(&self) -> &str {
         "rpc_write_router"
@@ -350,10 +351,13 @@ pub async fn create_router_server_type(
     // # Schema validator
     //
     // Initialise and instrument the schema validator
-    let schema_validator =
-        SchemaValidator::new(Arc::clone(&catalog), Arc::clone(&ns_cache), &metrics);
-    let schema_validator =
-        InstrumentationDecorator::new("schema_validator", &metrics, schema_validator);
+    let schema_validator = Arc::new(SchemaValidator::new(
+        Arc::clone(&catalog),
+        Arc::clone(&ns_cache),
+        &metrics,
+    ));
+    let dml_schema_validator =
+        InstrumentationDecorator::new("schema_validator", &metrics, Arc::clone(&schema_validator));
 
     // # Retention validator
     //
@@ -400,7 +404,7 @@ pub async fn create_router_server_type(
     //
     // Build the chain of DML handlers that forms the request processing pipeline
     let handler_stack = retention_validator
-        .and_then(schema_validator)
+        .and_then(dml_schema_validator)
         .and_then(partitioner)
         // Once writes have been partitioned, they are processed in parallel.
         //
@@ -461,7 +465,7 @@ pub async fn create_router_server_type(
     // Initialize the gRPC API delegate that creates the services relevant to the RPC
     // write router path and use it to create the relevant `RpcWriteRouterServer` and
     // `RpcWriteRouterServerType`.
-    let grpc = RpcWriteGrpcDelegate::new(catalog, object_store);
+    let grpc = RpcWriteGrpcDelegate::new(catalog, object_store, schema_validator);
 
     let router_server =
         RpcWriteRouterServer::new(http, grpc, metrics, common_state.trace_collector());

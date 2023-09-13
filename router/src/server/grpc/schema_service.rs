@@ -1,33 +1,41 @@
+use crate::{namespace_cache::NamespaceCache, schema_validator::SchemaValidator};
+use data_types::NamespaceName;
 use generated_types::influxdata::iox::schema::v1::*;
-use iox_catalog::interface::Catalog;
 use observability_deps::tracing::warn;
-use service_grpc_schema::{get_schema_from_catalog, schema_to_proto};
+use service_grpc_schema::schema_to_proto;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 /// Implementation of the gRPC schema service that is allowed to modify schemas
 #[derive(Debug)]
-pub struct SchemaService {
-    /// Catalog.
-    catalog: Arc<dyn Catalog>,
+pub(crate) struct SchemaService<C> {
+    /// Schema validator.
+    schema_validator: Arc<SchemaValidator<C>>,
 }
 
-impl SchemaService {
-    pub fn new(catalog: Arc<dyn Catalog>) -> Self {
-        Self { catalog }
+impl<C> SchemaService<C> {
+    pub(crate) fn new(schema_validator: Arc<SchemaValidator<C>>) -> Self {
+        Self { schema_validator }
     }
 }
 
 #[tonic::async_trait]
-impl schema_service_server::SchemaService for SchemaService {
+impl<C> schema_service_server::SchemaService for SchemaService<C>
+where
+    C: NamespaceCache<ReadError = iox_catalog::interface::Error> + 'static,
+{
     async fn get_schema(
         &self,
         request: Request<GetSchemaRequest>,
     ) -> Result<Response<GetSchemaResponse>, Status> {
-        let mut repos = self.catalog.repositories().await;
         let req = request.into_inner();
 
-        let schema = get_schema_from_catalog(repos.as_mut(), &req.namespace, req.table.as_deref())
+        let namespace_name = NamespaceName::try_from(req.namespace.clone())
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+
+        let schema = self
+            .schema_validator
+            .get_schema(&namespace_name, req.table.as_deref())
             .await
             .map_err(|e| {
                 warn!(error=%e, %req.namespace, "failed to retrieve namespace schema");
@@ -52,11 +60,12 @@ impl schema_service_server::SchemaService for SchemaService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::namespace_cache::{MemoryNamespaceCache, ReadThroughCache};
     use data_types::ColumnType;
     use futures::{future::BoxFuture, FutureExt};
     use generated_types::influxdata::iox::schema::v1::schema_service_server::SchemaService;
     use iox_catalog::{
-        interface::RepoCollection,
+        interface::{Catalog, RepoCollection},
         mem::MemCatalog,
         test_helpers::{arbitrary_namespace, arbitrary_table},
     };
@@ -65,7 +74,7 @@ mod tests {
 
     // `SchemaService` has to be specified in this way because the `generated_types` trait is
     // also in scope. Make an alias for convenience and to have one place to explain.
-    type Service = super::SchemaService;
+    type Service = super::SchemaService<ReadThroughCache<MemoryNamespaceCache>>;
 
     // Given some `catalog_setup` closure that can use the catalog repos and returns a future,
     // set up the catalog, await the future, and return the gRPC service.
@@ -73,13 +82,24 @@ mod tests {
     where
         S: (FnMut(&mut dyn RepoCollection) -> BoxFuture<'_, T>) + Send,
     {
-        let catalog = Arc::new(MemCatalog::new(Default::default()));
+        let metrics = Default::default();
+        let catalog = Arc::new(MemCatalog::new(Arc::clone(&metrics)));
         let mut repos = catalog.repositories().await;
 
         let setup = catalog_setup(repos.as_mut());
         setup.await;
 
-        Service::new(catalog)
+        let schema_validator = Arc::new(SchemaValidator::new(
+            Arc::clone(&catalog) as _,
+            setup_test_cache(catalog),
+            &metrics,
+        ));
+
+        Service::new(schema_validator)
+    }
+
+    fn setup_test_cache(catalog: Arc<dyn Catalog>) -> ReadThroughCache<MemoryNamespaceCache> {
+        ReadThroughCache::new(MemoryNamespaceCache::default(), catalog)
     }
 
     async fn get_schema(grpc: &Service, namespace: &str, table: Option<&str>) -> NamespaceSchema {

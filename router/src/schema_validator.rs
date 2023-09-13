@@ -1,6 +1,7 @@
 //! Check validity of schema changes against a centralised schema store, maintaining an in-memory
 //! cache of all observed schemas.
 
+use crate::namespace_cache::NamespaceCache;
 use data_types::{NamespaceName, NamespaceSchema};
 use iox_catalog::interface::Catalog;
 use metric::U64Counter;
@@ -99,7 +100,10 @@ pub struct SchemaValidator<C> {
     pub(crate) schema_conflict: U64Counter,
 }
 
-impl<C> SchemaValidator<C> {
+impl<C> SchemaValidator<C>
+where
+    C: NamespaceCache<ReadError = iox_catalog::interface::Error> + 'static,
+{
     /// Initialise a new [`SchemaValidator`] decorator, loading schemas from
     /// `catalog` and the provided `ns_cache`.
     pub fn new(catalog: Arc<dyn Catalog>, ns_cache: C, metrics: &metric::Registry) -> Self {
@@ -185,6 +189,34 @@ impl<C> SchemaValidator<C> {
         })?;
 
         Ok(())
+    }
+
+    /// Return the [`NamespaceSchema`] for `namespace`, filtered to only include `table_name` if
+    /// specified.
+    pub async fn get_schema(
+        &self,
+        namespace: &NamespaceName<'static>,
+        table_name: Option<&str>,
+    ) -> Result<Arc<NamespaceSchema>, iox_catalog::interface::Error> {
+        let namespace = self.cache.get_schema(namespace).await?;
+
+        match table_name {
+            Some(table) => {
+                let table_schema = namespace.tables.get(table).cloned().ok_or_else(|| {
+                    iox_catalog::interface::Error::TableNotFoundByName {
+                        name: table.to_string(),
+                    }
+                })?;
+
+                let namespace_one_table = Arc::new(NamespaceSchema {
+                    tables: [(table.to_string(), table_schema)].into(),
+                    ..(*namespace).clone()
+                });
+
+                Ok(namespace_one_table)
+            }
+            None => Ok(namespace),
+        }
     }
 }
 
