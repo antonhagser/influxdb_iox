@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
-use data_types::{CompactionLevel, ParquetFile, Timestamp};
+use data_types::{CompactionLevel, ParquetFile, Timestamp, TransitionPartitionId};
+use observability_deps::tracing::warn;
 
 use crate::{
     components::split_or_compact::start_level_files_to_split::{
@@ -26,11 +27,25 @@ impl Display for MultipleBranchesDivideInitial {
     }
 }
 
+// TODO(joe): maintain this comment through the next few PRs; see how true the comment is/remains.
+// divide is the second of three file list manipluation layers.  split has already filtered most of the
+// files not relevant to this round of compaction.  Now divide will group files into branches which can
+// be concurrently operated on.  As of this comment, dividing the files into branches is fairly simple,
+// except for:
+//   - ManySmallFiles, which is cluttered from previous challenges when RoundInfo didn't have as much influence.
+//     this clutter will either be going away, or maybe ManySmallFiles goes away entirely
+//   - SimulatedLeadingEdge which is likley a temporary workaround during the refactoring (i.e. likely go go away)
+//
+// Over time this function should work towards being a simpler grouping into batches for concurrent operations.
+// If that happens (and this layer remains), this should probably be renamed to emphasize its role in branch creation
+// rather than the current abigious 'divide' which sounds potentially overlapping with divisions happening in the
+// other layers.
 impl DivideInitial for MultipleBranchesDivideInitial {
     fn divide(
         &self,
         files: Vec<ParquetFile>,
         round_info: RoundInfo,
+        partition: TransitionPartitionId,
     ) -> (Vec<Vec<ParquetFile>>, Vec<ParquetFile>) {
         let mut more_for_later = vec![];
         match round_info {
@@ -107,15 +122,17 @@ impl DivideInitial for MultipleBranchesDivideInitial {
                             || current_branch_size + f.file_size_bytes as usize
                                 > max_total_file_size_to_group
                         {
-                            // panic if current_branch is empty
                             if current_branch.is_empty() {
-                                panic!("Size of a file {} is larger than the max size limit to compact. Please adjust the settings. See ticket https://github.com/influxdata/idpe/issues/17209" , f.file_size_bytes);
+                                warn!(
+                                    "Size of a file {} is larger than the max size limit to compact on partition {}.",
+                                    f.file_size_bytes,
+                                    partition
+                                );
                             }
-
                             if current_branch.len() == 1 {
                                 // Compacting a branch of 1 won't help us reduce the L0 file count.  Put it on the ignore list.
                                 more_for_later.push(current_branch.pop().unwrap());
-                            } else {
+                            } else if !current_branch.is_empty() {
                                 branches.push(current_branch);
                             }
                             current_branch = Vec::with_capacity(capacity);
@@ -139,7 +156,30 @@ impl DivideInitial for MultipleBranchesDivideInitial {
                 (branches, more_for_later)
             }
 
-            RoundInfo::TargetLevel { .. } => (vec![files], more_for_later),
+            RoundInfo::TargetLevel {
+                target_level,
+                max_total_file_size_to_group,
+            } => {
+                let total_bytes: usize = files.iter().map(|f| f.file_size_bytes as usize).sum();
+                if total_bytes < max_total_file_size_to_group {
+                    (vec![files], more_for_later)
+                } else {
+                    let (mut for_now, rest): (Vec<ParquetFile>, Vec<ParquetFile>) = files
+                        .into_iter()
+                        .partition(|f| f.compaction_level == target_level.prev());
+
+                    let min_time = for_now.iter().map(|f| f.min_time).min().unwrap();
+                    let max_time = for_now.iter().map(|f| f.max_time).max().unwrap();
+
+                    let (overlaps, for_later): (Vec<ParquetFile>, Vec<ParquetFile>) = rest
+                        .into_iter()
+                        .partition(|f2| f2.overlaps_time_range(min_time, max_time));
+
+                    for_now.extend(overlaps);
+
+                    (vec![for_now], for_later)
+                }
+            }
 
             RoundInfo::SimulatedLeadingEdge {
                 max_num_files_to_group,
@@ -206,6 +246,33 @@ impl DivideInitial for MultipleBranchesDivideInitial {
                 }
                 (vec![current_branch], more_for_later)
             }
+
+            // RoundSplit already eliminated all the files we don't need to work on.
+            RoundInfo::VerticalSplit { .. } => (vec![files], more_for_later),
+
+            RoundInfo::CompactRanges { ranges, .. } => {
+                // Each range describes what can be a distinct branch, concurrently compacted.
+
+                let mut branches = Vec::with_capacity(ranges.len());
+                let mut this_branch: Vec<ParquetFile>;
+                let mut files = files;
+
+                for range in &ranges {
+                    (this_branch, files) = files.into_iter().partition(|f2| {
+                        f2.overlaps_time_range(Timestamp::new(range.min), Timestamp::new(range.max))
+                    });
+
+                    if !this_branch.is_empty() {
+                        branches.push(this_branch)
+                    }
+                }
+                assert!(
+                    files.is_empty(),
+                    "all files should map to a range, instead partition {} had unmapped files",
+                    partition
+                );
+                (branches, vec![])
+            }
         }
     }
 }
@@ -235,7 +302,7 @@ pub fn order_files(files: Vec<ParquetFile>, start_level: CompactionLevel) -> Vec
 
 #[cfg(test)]
 mod tests {
-    use data_types::CompactionLevel;
+    use data_types::{CompactionLevel, PartitionId};
     use iox_tests::ParquetFileBuilder;
 
     use super::*;
@@ -259,7 +326,11 @@ mod tests {
 
         // empty input
         assert_eq!(
-            divide.divide(vec![], round_info),
+            divide.divide(
+                vec![],
+                round_info.clone(),
+                TransitionPartitionId::Deprecated(PartitionId::new(0))
+            ),
             (Vec::<Vec<_>>::new(), Vec::new())
         );
 
@@ -280,41 +351,15 @@ mod tests {
         // files in random order of max_l0_created_at
         let files = vec![f2.clone(), f3.clone(), f1.clone()];
 
-        let (branches, more_for_later) = divide.divide(files, round_info);
+        let (branches, more_for_later) = divide.divide(
+            files,
+            round_info.clone(),
+            TransitionPartitionId::Deprecated(PartitionId::new(0)),
+        );
         // output must be split into their max_l0_created_at
         assert_eq!(branches.len(), 1);
         assert_eq!(more_for_later.len(), 1);
         assert_eq!(branches[0], vec![f1, f2]);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Size of a file 50 is larger than the max size limit to compact. Please adjust the settings"
-    )]
-    fn test_divide_size_limit_too_small() {
-        let round_info = RoundInfo::ManySmallFiles {
-            start_level: CompactionLevel::Initial,
-            max_num_files_to_group: 10,
-            max_total_file_size_to_group: 40,
-        };
-        let divide = MultipleBranchesDivideInitial::new();
-
-        let f1 = ParquetFileBuilder::new(1)
-            .with_compaction_level(CompactionLevel::Initial)
-            .with_max_l0_created_at(1)
-            .with_file_size_bytes(50)
-            .build();
-        let f2 = ParquetFileBuilder::new(2)
-            .with_compaction_level(CompactionLevel::Initial)
-            .with_max_l0_created_at(5)
-            .with_file_size_bytes(5)
-            .build();
-
-        // files in random order of max_l0_created_at
-        let files = vec![f2, f1];
-
-        // panic
-        let (_branches, _more_for_later) = divide.divide(files, round_info);
     }
 
     #[test]
@@ -345,7 +390,11 @@ mod tests {
         // files in random order of max_l0_created_at
         let files = vec![f2.clone(), f3.clone(), f1.clone()];
 
-        let (branches, more_for_later) = divide.divide(files, round_info);
+        let (branches, more_for_later) = divide.divide(
+            files,
+            round_info,
+            TransitionPartitionId::Deprecated(PartitionId::new(0)),
+        );
         // output must be split into their max_l0_created_at
         assert_eq!(branches.len(), 1);
         assert_eq!(more_for_later.len(), 1);

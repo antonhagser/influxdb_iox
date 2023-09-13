@@ -399,6 +399,7 @@ impl MiniCluster {
                 let id = SchemaServiceClient::new(c)
                     .get_schema(GetSchemaRequest {
                         namespace: self.namespace().to_string(),
+                        table: None,
                     })
                     .await
                     .expect("failed to query for namespace ID")
@@ -424,6 +425,7 @@ impl MiniCluster {
         let id = SchemaServiceClient::new(c)
             .get_schema(GetSchemaRequest {
                 namespace: self.namespace().to_string(),
+                table: Some(name.to_string()),
             })
             .await
             .expect("failed to query for namespace ID")
@@ -456,6 +458,7 @@ impl MiniCluster {
         let table_id = SchemaServiceClient::new(c.clone())
             .get_schema(GetSchemaRequest {
                 namespace: namespace_name.clone(),
+                table: Some(table_name.to_string()),
             })
             .await
             .expect("failed to query for namespace ID")
@@ -563,16 +566,20 @@ impl MiniCluster {
         Ok(IngesterResponse { partitions })
     }
 
-    /// Ask all of the ingesters to persist their data.
+    /// Ask all of the ingesters to persist their data for the cluster namespace.
     pub async fn persist_ingesters(&self) {
+        self.persist_ingesters_by_namespace(None).await;
+    }
+
+    /// Ask all of the ingesters to persist their data for a specified namespace, or the cluster
+    /// namespace if none specified.
+    pub async fn persist_ingesters_by_namespace(&self, namespace: Option<String>) {
+        let namespace = namespace.unwrap_or_else(|| self.namespace().into());
         for ingester in &self.ingesters {
             let mut ingester_client =
                 influxdb_iox_client::ingester::Client::new(ingester.ingester_grpc_connection());
 
-            ingester_client
-                .persist(self.namespace().into())
-                .await
-                .unwrap();
+            ingester_client.persist(namespace.clone()).await.unwrap();
         }
     }
 

@@ -114,9 +114,7 @@ type HttpDelegateStack = HttpDelegate<
             Chain<
                 Chain<
                     RetentionValidator,
-                    SchemaValidator<
-                        Arc<ReadThroughCache<Arc<ShardedCache<Arc<MemoryNamespaceCache>>>>>,
-                    >,
+                    SchemaValidator<Arc<ReadThroughCache<Arc<ShardedCache<MemoryNamespaceCache>>>>>,
                 >,
                 Partitioner,
             >,
@@ -127,10 +125,8 @@ type HttpDelegateStack = HttpDelegate<
         >,
     >,
     NamespaceAutocreation<
-        Arc<ReadThroughCache<Arc<ShardedCache<Arc<MemoryNamespaceCache>>>>>,
-        NamespaceSchemaResolver<
-            Arc<ReadThroughCache<Arc<ShardedCache<Arc<MemoryNamespaceCache>>>>>,
-        >,
+        Arc<ReadThroughCache<Arc<ShardedCache<MemoryNamespaceCache>>>>,
+        NamespaceSchemaResolver<Arc<ReadThroughCache<Arc<ShardedCache<MemoryNamespaceCache>>>>>,
     >,
 >;
 
@@ -149,13 +145,12 @@ impl TestContext {
             [(Arc::clone(&client), "mock client")],
             1.try_into().unwrap(),
             &metrics,
-            rpc_write_error_window,
             rpc_write_num_probes,
         );
 
         let ns_cache = Arc::new(ReadThroughCache::new(
             Arc::new(ShardedCache::new(
-                iter::repeat_with(|| Arc::new(MemoryNamespaceCache::default())).take(10),
+                iter::repeat_with(MemoryNamespaceCache::default).take(10),
             )),
             Arc::clone(&catalog),
         ));

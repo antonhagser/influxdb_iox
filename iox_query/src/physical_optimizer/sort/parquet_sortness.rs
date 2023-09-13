@@ -32,19 +32,21 @@ impl PhysicalOptimizerRule for ParquetSortness {
         config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         plan.transform_down(&|plan| {
-            let Some(children_with_sort) = detect_children_with_desired_ordering(plan.as_ref()) else {
+            let Some(children_with_sort) = detect_children_with_desired_ordering(plan.as_ref())
+            else {
                 return Ok(Transformed::No(plan));
             };
             let mut children_new = Vec::with_capacity(children_with_sort.len());
             for (child, desired_ordering) in children_with_sort {
-                let mut rewriter = ParquetSortnessRewriter{config, desired_ordering: &desired_ordering};
+                let mut rewriter = ParquetSortnessRewriter {
+                    config,
+                    desired_ordering: &desired_ordering,
+                };
                 let child = Arc::clone(&child).rewrite(&mut rewriter)?;
                 children_new.push(child);
             }
 
-            Ok(Transformed::Yes(
-                plan.with_new_children(children_new)?
-            ))
+            Ok(Transformed::Yes(plan.with_new_children(children_new)?))
         })
     }
 
@@ -387,7 +389,7 @@ mod tests {
             projection: None,
             limit: None,
             table_partition_cols: vec![],
-            output_ordering: vec![vec![]],
+            output_ordering: vec![],
             infinite_source: false,
         };
         let inner = ParquetExec::new(base_config, None, None);
@@ -610,13 +612,13 @@ mod tests {
         input:
           - " DeduplicateExec: [col2@1 ASC,col1@0 ASC]"
           - "   UnionExec"
-          - "     RecordBatchesExec: batches_groups=0 batches=0 total_rows=0"
+          - "     RecordBatchesExec: chunks=0"
           - "     ParquetExec: file_groups={1 group: [[1.parquet, 2.parquet]]}, projection=[col1, col2, col3, __chunk_order], output_ordering=[col2@1 ASC, col1@0 ASC, __chunk_order@3 ASC]"
         output:
           Ok:
             - " DeduplicateExec: [col2@1 ASC,col1@0 ASC]"
             - "   UnionExec"
-            - "     RecordBatchesExec: batches_groups=0 batches=0 total_rows=0"
+            - "     RecordBatchesExec: chunks=0"
             - "     ParquetExec: file_groups={2 groups: [[1.parquet], [2.parquet]]}, projection=[col1, col2, col3, __chunk_order], output_ordering=[col2@1 ASC, col1@0 ASC, __chunk_order@3 ASC]"
         "###
         );

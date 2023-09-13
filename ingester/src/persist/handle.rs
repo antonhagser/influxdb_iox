@@ -418,8 +418,14 @@ impl PersistQueue for PersistHandle {
         // queries to at most `n_workers`.
 
         let sort_key = match partition.lock().sort_key() {
-            SortKeyState::Deferred(v) => v.peek().flatten(),
-            SortKeyState::Provided(v) => v.as_ref().cloned(),
+            SortKeyState::Deferred(v) => {
+                let sort_key = v.peek();
+                match sort_key {
+                    None => None,
+                    Some((sort_key, _sort_key_ids)) => sort_key,
+                }
+            }
+            SortKeyState::Provided(v, _) => v.as_ref().cloned(),
         };
 
         // Build the persist task request.
@@ -475,6 +481,7 @@ mod tests {
     use std::{sync::Arc, task::Poll, time::Duration};
 
     use assert_matches::assert_matches;
+    use data_types::SortedColumnSet;
     use futures::Future;
     use iox_catalog::mem::MemCatalog;
     use object_store::memory::InMemory;
@@ -570,7 +577,7 @@ mod tests {
         handle.worker_queues = JumpHash::new([worker1_tx, worker2_tx]);
 
         // Generate a partition with no known sort key.
-        let p = new_partition(SortKeyState::Provided(None)).await;
+        let p = new_partition(SortKeyState::Provided(None, None)).await;
         let data = p.lock().mark_persisting().unwrap();
 
         // Enqueue it
@@ -601,7 +608,7 @@ mod tests {
         );
 
         // Enqueue another partition for the same ID.
-        let p = new_partition(SortKeyState::Provided(None)).await;
+        let p = new_partition(SortKeyState::Provided(None, None)).await;
         let data = p.lock().mark_persisting().unwrap();
 
         // Enqueue it
@@ -648,7 +655,7 @@ mod tests {
         // Generate a partition with a resolved, but empty sort key.
         let p = new_partition(SortKeyState::Deferred(Arc::new(DeferredLoad::new(
             Duration::from_secs(1),
-            async { None },
+            async { (None, None) },
             &metrics,
         ))))
         .await;
@@ -657,7 +664,8 @@ mod tests {
             (p.sort_key().clone(), p.mark_persisting().unwrap())
         };
         // Ensure the key is resolved.
-        assert_matches!(loader.get().await, None);
+        assert_matches!(loader.get_sort_key().await, None);
+        assert_matches!(loader.get_sort_key_ids().await, None);
 
         // Enqueue it
         let notify = handle.enqueue(p, data).await;
@@ -736,7 +744,12 @@ mod tests {
         // the data within the partition's buffer.
         let p = new_partition(SortKeyState::Deferred(Arc::new(DeferredLoad::new(
             Duration::from_secs(1),
-            async { Some(SortKey::from_columns(["time", "some-other-column"])) },
+            async {
+                (
+                    Some(SortKey::from_columns(["time", "some-other-column"])),
+                    Some(SortedColumnSet::from([1, 2])),
+                )
+            },
             &metrics,
         ))))
         .await;
@@ -745,7 +758,7 @@ mod tests {
             (p.sort_key().clone(), p.mark_persisting().unwrap())
         };
         // Ensure the key is resolved.
-        assert_matches!(loader.get().await, Some(_));
+        assert_matches!(loader.get_sort_key().await, Some(_));
 
         // Enqueue it
         let notify = handle.enqueue(p, data).await;
@@ -823,7 +836,12 @@ mod tests {
         // the data within the partition's buffer.
         let p = new_partition(SortKeyState::Deferred(Arc::new(DeferredLoad::new(
             Duration::from_secs(1),
-            async { Some(SortKey::from_columns(["time", "good"])) },
+            async {
+                (
+                    Some(SortKey::from_columns(["time", "good"])),
+                    Some(SortedColumnSet::from([1, 2])),
+                )
+            },
             &metrics,
         ))))
         .await;
@@ -832,7 +850,7 @@ mod tests {
             (p.sort_key().clone(), p.mark_persisting().unwrap())
         };
         // Ensure the key is resolved.
-        assert_matches!(loader.get().await, Some(_));
+        assert_matches!(loader.get_sort_key().await, Some(_));
 
         // Enqueue it
         let notify = handle.enqueue(p, data).await;
@@ -904,7 +922,12 @@ mod tests {
         // Generate a partition
         let p = new_partition(SortKeyState::Deferred(Arc::new(DeferredLoad::new(
             Duration::from_secs(1),
-            async { Some(SortKey::from_columns(["time", "good"])) },
+            async {
+                (
+                    Some(SortKey::from_columns(["time", "good"])),
+                    Some(SortedColumnSet::from([1, 2])),
+                )
+            },
             &metrics,
         ))))
         .await;
@@ -916,7 +939,12 @@ mod tests {
         // Generate a second partition
         let p = new_partition(SortKeyState::Deferred(Arc::new(DeferredLoad::new(
             Duration::from_secs(1),
-            async { Some(SortKey::from_columns(["time", "good"])) },
+            async {
+                (
+                    Some(SortKey::from_columns(["time", "good"])),
+                    Some(SortedColumnSet::from([1, 2])),
+                )
+            },
             &metrics,
         ))))
         .await;

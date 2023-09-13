@@ -120,7 +120,8 @@ where
             }
         };
 
-        UpstreamSnapshot::new(probe.into_iter().chain(healthy), idx)
+        let contains_probe = probe.is_some();
+        UpstreamSnapshot::new(probe.into_iter().chain(healthy), idx, contains_probe)
     }
 }
 
@@ -219,7 +220,6 @@ mod tests {
 
     use super::*;
 
-    const ARBITRARY_TEST_ERROR_WINDOW: Duration = Duration::from_secs(5);
     const ARBITRARY_TEST_NUM_PROBES: u64 = 10;
 
     /// No healthy nodes prevents a snapshot from being returned.
@@ -233,7 +233,6 @@ mod tests {
         let client_err_1 = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bananas",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_err_1));
@@ -244,7 +243,6 @@ mod tests {
         let client_err_2 = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bananas",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_err_2));
@@ -268,7 +266,6 @@ mod tests {
         let client_err_1 = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bananas",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_err_1));
@@ -279,7 +276,6 @@ mod tests {
         let client_err_2 = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bananas",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_err_2));
@@ -289,7 +285,6 @@ mod tests {
         let client_ok = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bananas",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_ok));
@@ -350,7 +345,6 @@ mod tests {
         let client_err_1 = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bananas",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_err_1));
@@ -361,7 +355,6 @@ mod tests {
         let client_err_2 = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bananas",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_err_2));
@@ -371,7 +364,6 @@ mod tests {
         let client_ok = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bananas",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_ok));
@@ -423,7 +415,6 @@ mod tests {
         let client = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bananas",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit));
@@ -477,7 +468,6 @@ mod tests {
         let client_err = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bananas",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_err));
@@ -487,7 +477,6 @@ mod tests {
         let client_ok_1 = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bananas",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_ok_1));
@@ -497,7 +486,6 @@ mod tests {
         let client_ok_2 = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bananas",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_ok_2));
@@ -535,7 +523,6 @@ mod tests {
         let client_err_1 = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bad-client-1",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_err_1));
@@ -546,7 +533,6 @@ mod tests {
         let client_err_2 = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bad-client-2",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_err_2));
@@ -556,7 +542,6 @@ mod tests {
         let client_ok = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "ok-client",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_ok));
@@ -627,7 +612,6 @@ mod tests {
         let client_err = CircuitBreakingClient::new(
             Arc::new(MockWriteClient::default()),
             "bad-client-1",
-            ARBITRARY_TEST_ERROR_WINDOW,
             ARBITRARY_TEST_NUM_PROBES,
         )
         .with_circuit_breaker(Arc::clone(&circuit_err));

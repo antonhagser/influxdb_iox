@@ -2,11 +2,17 @@
 
 use std::num::NonZeroUsize;
 
+use crate::{gossip::GossipConfig, memory_size::MemorySize};
+
 use super::compactor_scheduler::CompactorSchedulerConfig;
 
 /// CLI config for compactor
 #[derive(Debug, Clone, clap::Parser)]
 pub struct CompactorConfig {
+    /// Gossip config.
+    #[clap(flatten)]
+    pub gossip_config: GossipConfig,
+
     /// Configuration for the compactor scheduler
     #[clap(flatten)]
     pub compactor_scheduler_config: CompactorSchedulerConfig,
@@ -62,13 +68,15 @@ pub struct CompactorConfig {
     /// If compaction plans attempt to allocate more than this many
     /// bytes during execution, they will error with
     /// "ResourcesExhausted".
+    ///
+    /// Can be given as absolute value or in percentage of the total available memory (e.g. `10%`).
     #[clap(
         long = "exec-mem-pool-bytes",
         env = "INFLUXDB_IOX_EXEC_MEM_POOL_BYTES",
         default_value = "8589934592",  // 8GB
         action
     )]
-    pub exec_mem_pool_bytes: usize,
+    pub exec_mem_pool_bytes: MemorySize,
 
     /// Desired max size of compacted parquet files.
     ///

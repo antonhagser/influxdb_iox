@@ -251,9 +251,10 @@ impl QuerierTable {
             .await;
         let Some(cached_table) = cached_namespace
             .as_ref()
-            .and_then(|ns| ns.tables.get(self.table_name.as_ref())) else {
-                return Ok(vec![]);
-            };
+            .and_then(|ns| ns.tables.get(self.table_name.as_ref()))
+        else {
+            return Ok(vec![]);
+        };
         let cached_partitions = self
             .fetch_cached_partitions(
                 cached_table,
@@ -330,16 +331,22 @@ impl QuerierTable {
         ingester_partitions: &[IngesterPartition],
         parquet_files: &[Arc<ParquetFile>],
         span: Option<Span>,
-    ) -> HashMap<TransitionPartitionId, CachedPartition> {
+    ) -> HashMap<TransitionPartitionId, Arc<CachedPartition>> {
         let span_recorder = SpanRecorder::new(span);
 
         let mut should_cover: HashMap<TransitionPartitionId, HashSet<ColumnId>> =
             HashMap::with_capacity(ingester_partitions.len());
 
+        // Be optimistic and assume that all partitions cover the entire columns set. This avoids resizing the HashSets.
+        let n_table_cols = cached_table.column_id_map.len();
+        let default_hash_set = || HashSet::<ColumnId>::with_capacity(n_table_cols);
+
         // For ingester partitions we only need the column ranges -- which are static -- not the
         // sort key. So it is sufficient to collect the partition IDs.
         for p in ingester_partitions {
-            should_cover.entry(p.partition_id()).or_default();
+            should_cover
+                .entry(p.partition_id())
+                .or_insert_with(default_hash_set);
         }
 
         // For parquet files we must ensure that the -- potentially evolving -- sort key coveres
@@ -352,7 +359,7 @@ impl QuerierTable {
         for f in parquet_files {
             should_cover
                 .entry(f.partition_id.clone())
-                .or_default()
+                .or_insert_with(default_hash_set)
                 .extend(f.column_set.iter().copied().filter(|id| pk.contains(id)));
         }
 
@@ -432,18 +439,19 @@ impl QuerierTable {
         let columns = self.schema.select_given_and_pk_columns(projection);
 
         // get cached table w/o any must-coverage information
-        let Some(cached_table) = self.chunk_adapter
+        let Some(cached_table) = self
+            .chunk_adapter
             .catalog_cache()
             .namespace()
             .get(
                 Arc::clone(&self.namespace_name),
                 &[],
-                span_recorder.child_span("get namespace")
+                span_recorder.child_span("get namespace"),
             )
             .await
             .and_then(|ns| ns.tables.get(&self.table_name).cloned())
         else {
-            return Ok(vec![])
+            return Ok(vec![]);
         };
 
         // get any chunks from the ingester(s)

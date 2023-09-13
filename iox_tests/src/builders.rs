@@ -1,6 +1,7 @@
 use data_types::{
-    ColumnSet, CompactionLevel, NamespaceId, ParquetFile, ParquetFileId, Partition, PartitionId,
-    PartitionKey, SkippedCompaction, Table, TableId, Timestamp, TransitionPartitionId,
+    Column, ColumnId, ColumnSet, ColumnType, CompactionLevel, NamespaceId, ParquetFile,
+    ParquetFileId, Partition, PartitionId, PartitionKey, SkippedCompaction, Table, TableId,
+    Timestamp, TransitionPartitionId,
 };
 use uuid::Uuid;
 
@@ -112,6 +113,51 @@ impl From<ParquetFile> for ParquetFileBuilder {
 }
 
 #[derive(Debug)]
+/// Build  [`Column`]s for testing
+pub struct ColumnBuilder {
+    column: Column,
+}
+
+impl ColumnBuilder {
+    /// Create a builder to create a column with `table_id` `id`
+    pub fn new(id: i64, table_id: i64) -> Self {
+        Self {
+            column: Column {
+                id: ColumnId::new(id),
+                table_id: TableId::new(table_id),
+                name: "column".to_string(),
+                column_type: ColumnType::Tag,
+            },
+        }
+    }
+
+    /// Set the column name
+    pub fn with_name(self, name: &str) -> Self {
+        Self {
+            column: Column {
+                name: name.to_string(),
+                ..self.column
+            },
+        }
+    }
+
+    /// Set column type
+    pub fn with_column_type(self, column_type: ColumnType) -> Self {
+        Self {
+            column: Column {
+                column_type,
+                ..self.column
+            },
+        }
+    }
+
+    /// Create the table
+    pub fn build(self) -> Column {
+        self.column
+    }
+}
+
+#[derive(Debug)]
 /// Build  [`Table`]s for testing
 pub struct TableBuilder {
     table: Table,
@@ -161,6 +207,7 @@ impl PartitionBuilder {
                 TableId::new(0),
                 PartitionKey::from("key"),
                 vec![],
+                None,
                 None,
             ),
         }

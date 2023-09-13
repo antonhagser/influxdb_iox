@@ -17,7 +17,7 @@ use cache_system::{
 };
 use data_types::{
     partition_template::{build_column_values, ColumnValue},
-    ColumnId, Partition, TransitionPartitionId,
+    ColumnId, Partition, SortedColumnSet, TransitionPartitionId,
 };
 use datafusion::scalar::ScalarValue;
 use iox_catalog::{interface::Catalog, partition_lookup_batch};
@@ -39,7 +39,7 @@ const CACHE_ID: &str = "partition";
 type CacheT = Box<
     dyn Cache<
         K = TransitionPartitionId,
-        V = Option<CachedPartition>,
+        V = Option<Arc<CachedPartition>>,
         GetExtra = (Arc<CachedTable>, Option<Span>),
         PeekExtra = ((), Option<Span>),
     >,
@@ -49,7 +49,7 @@ type CacheT = Box<
 #[derive(Debug)]
 pub struct PartitionCache {
     cache: CacheT,
-    remove_if_handle: RemoveIfHandle<TransitionPartitionId, Option<CachedPartition>>,
+    remove_if_handle: RemoveIfHandle<TransitionPartitionId, Option<Arc<CachedPartition>>>,
     flusher: Arc<dyn BatchLoaderFlusher>,
 }
 
@@ -104,7 +104,7 @@ impl PartitionCache {
                     for p in partitions {
                         let idx = out_map[&p.transition_partition_id()];
                         let cached_table = &cached_tables[idx];
-                        let p = CachedPartition::new(p, cached_table);
+                        let p = Arc::new(CachedPartition::new(p, cached_table));
                         out[idx] = Some(p);
                     }
 
@@ -129,13 +129,15 @@ impl PartitionCache {
         backend.add_policy(LruPolicy::new(
             ram_pool,
             CACHE_ID,
-            Arc::new(FunctionEstimator::new(|k, v: &Option<CachedPartition>| {
-                RamSize(
-                    size_of_val(k)
-                        + size_of_val(v)
-                        + v.as_ref().map(|v| v.size()).unwrap_or_default(),
-                )
-            })),
+            Arc::new(FunctionEstimator::new(
+                |k, v: &Option<Arc<CachedPartition>>| {
+                    RamSize(
+                        size_of_val(k)
+                            + size_of_val(v)
+                            + v.as_ref().map(|v| v.size()).unwrap_or_default(),
+                    )
+                },
+            )),
         ));
 
         let cache = CacheDriver::new(loader, backend);
@@ -163,7 +165,7 @@ impl PartitionCache {
         cached_table: Arc<CachedTable>,
         partitions: Vec<PartitionRequest>,
         span: Option<Span>,
-    ) -> Vec<CachedPartition> {
+    ) -> Vec<Arc<CachedPartition>> {
         let mut span_recorder = SpanRecorder::new(span);
 
         let futures = partitions
@@ -184,7 +186,7 @@ impl PartitionCache {
                         partition_id.clone(),
                         move |cached_partition| {
                             let invalidates = if let Some(sort_key) =
-                                &cached_partition.and_then(|p| p.sort_key)
+                                &cached_partition.and_then(|p| p.sort_key.clone())
                             {
                                 sort_key_should_cover
                                     .iter()
@@ -242,7 +244,7 @@ pub struct PartitionRequest {
     pub sort_key_should_cover: Vec<ColumnId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CachedPartition {
     pub id: TransitionPartitionId,
     pub sort_key: Option<Arc<PartitionSortKey>>,
@@ -251,9 +253,18 @@ pub struct CachedPartition {
 
 impl CachedPartition {
     fn new(partition: Partition, table: &CachedTable) -> Self {
-        let sort_key = partition
-            .sort_key()
-            .map(|sort_key| Arc::new(PartitionSortKey::new(sort_key, &table.column_id_map_rev)));
+        // build sort_key from the partition's sort_key_ids and table columns
+        let sort_key = partition.sort_key_ids_none_if_empty().map(|sort_key_ids| {
+            Arc::new(PartitionSortKey::new(sort_key_ids, &table.column_id_map))
+        });
+
+        // This is here to catch bugs if any while mapping sort_key_ids to column names
+        // This wil be removed once sort_key is removed from partition
+        let p_sort_key = partition.sort_key();
+        assert_eq!(
+            sort_key.as_ref().map(|sk| sk.sort_key.as_ref()),
+            p_sort_key.as_ref()
+        );
 
         let mut column_ranges =
             build_column_values(&table.partition_template, partition.partition_key.inner())
@@ -326,20 +337,27 @@ impl CachedPartition {
         }
     }
 
-    /// RAM-bytes EXCLUDING `self`.
+    /// RAM-bytes INCLUDING `self`.
     fn size(&self) -> usize {
+        let id = self.id.size() - std::mem::size_of_val(&self.id);
+
         // Arc content
-        self.sort_key
+        let sort_key = self
+            .sort_key
             .as_ref()
             .map(|sk| sk.size())
-            .unwrap_or_default()
-            + std::mem::size_of::<HashMap<Arc<str>, ColumnRange>>()
+            .unwrap_or_default();
+
+        // Arc content
+        let column_ranges = std::mem::size_of::<HashMap<Arc<str>, ColumnRange>>()
             + (self.column_ranges.capacity() * std::mem::size_of::<(Arc<str>, ColumnRange)>())
             + self
                 .column_ranges
                 .iter()
                 .map(|(col, range)| col.len() + range.min_value.size() + range.max_value.size())
-                .sum::<usize>()
+                .sum::<usize>();
+
+        std::mem::size_of_val(self) + id + sort_key + column_ranges
     }
 }
 
@@ -351,23 +369,25 @@ pub struct PartitionSortKey {
 }
 
 impl PartitionSortKey {
-    fn new(sort_key: SortKey, column_id_map_rev: &HashMap<Arc<str>, ColumnId>) -> Self {
-        let sort_key = Arc::new(sort_key);
+    fn new(sort_key_ids: SortedColumnSet, column_id_map: &HashMap<ColumnId, Arc<str>>) -> Self {
+        let column_order: Box<[ColumnId]> = sort_key_ids.iter().copied().collect();
 
-        let column_order: Box<[ColumnId]> = sort_key
-            .iter()
-            .map(|(name, _opts)| {
-                *column_id_map_rev
-                    .get(name.as_ref())
-                    .unwrap_or_else(|| panic!("column_id_map_rev misses data: {name}"))
-            })
-            .collect();
+        // build sort_key from the column order
+        let sort_key = SortKey::from_columns(
+            column_order
+                .iter()
+                .map(|c_id| {
+                    column_id_map.get(c_id).unwrap_or_else(|| {
+                        panic!("column_id_map misses data for column id: {}", c_id.get())
+                    })
+                })
+                .cloned(),
+        );
 
-        let mut column_set: HashSet<ColumnId> = column_order.iter().copied().collect();
-        column_set.shrink_to_fit();
+        let column_set: HashSet<ColumnId> = column_order.iter().copied().collect();
 
         Self {
-            sort_key,
+            sort_key: Arc::new(sort_key),
             column_set,
             column_order,
         }
@@ -391,7 +411,7 @@ mod tests {
     use async_trait::async_trait;
     use data_types::{
         partition_template::TablePartitionTemplateOverride, ColumnType, PartitionId, PartitionKey,
-        TableId,
+        SortedColumnSet, TableId,
     };
     use futures::StreamExt;
     use generated_types::influxdata::iox::partition_template::v1::{
@@ -410,7 +430,7 @@ mod tests {
         let c1 = t.create_column("tag", ColumnType::Tag).await;
         let c2 = t.create_column("time", ColumnType::Time).await;
         let p1 = t
-            .create_partition_with_sort_key("k1", &["tag", "time"])
+            .create_partition_with_sort_key("k1", &["tag", "time"], &[c1.id(), c2.id()])
             .await
             .partition
             .clone();
@@ -450,7 +470,8 @@ mod tests {
             .get_one(Arc::clone(&cached_table), &p1_id, &Vec::new(), None)
             .await
             .unwrap()
-            .sort_key;
+            .sort_key
+            .clone();
         assert_eq!(
             sort_key1a.as_ref().unwrap().as_ref(),
             &PartitionSortKey {
@@ -469,7 +490,8 @@ mod tests {
             .get_one(Arc::clone(&cached_table), &p2_id, &Vec::new(), None)
             .await
             .unwrap()
-            .sort_key;
+            .sort_key
+            .clone();
         assert_eq!(sort_key2, None);
         assert_catalog_access_metric_count(
             &catalog.metric_registry,
@@ -481,7 +503,8 @@ mod tests {
             .get_one(Arc::clone(&cached_table), &p1_id, &Vec::new(), None)
             .await
             .unwrap()
-            .sort_key;
+            .sort_key
+            .clone();
         assert!(Arc::ptr_eq(
             sort_key1a.as_ref().unwrap(),
             sort_key1b.as_ref().unwrap()
@@ -602,7 +625,7 @@ mod tests {
         let p4_id = p4.transition_partition_id();
         let p5_id = p5.transition_partition_id();
 
-        let ranges1a = cache
+        let ranges1a = &cache
             .get_one(Arc::clone(&cached_table), &p1_id, &[], None)
             .await
             .unwrap()
@@ -636,7 +659,7 @@ mod tests {
             1,
         );
 
-        let ranges2 = cache
+        let ranges2 = &cache
             .get_one(Arc::clone(&cached_table), &p2_id, &[], None)
             .await
             .unwrap()
@@ -657,7 +680,7 @@ mod tests {
             2,
         );
 
-        let ranges3 = cache
+        let ranges3 = &cache
             .get_one(Arc::clone(&cached_table), &p3_id, &[], None)
             .await
             .unwrap()
@@ -687,7 +710,7 @@ mod tests {
             3,
         );
 
-        let ranges4 = cache
+        let ranges4 = &cache
             .get_one(Arc::clone(&cached_table), &p4_id, &[], None)
             .await
             .unwrap()
@@ -717,7 +740,7 @@ mod tests {
             4,
         );
 
-        let ranges5 = cache
+        let ranges5 = &cache
             .get_one(Arc::clone(&cached_table), &p5_id, &[], None)
             .await
             .unwrap()
@@ -738,12 +761,12 @@ mod tests {
             5,
         );
 
-        let ranges1b = cache
+        let ranges1b = &cache
             .get_one(Arc::clone(&cached_table), &p1_id, &[], None)
             .await
             .unwrap()
             .column_ranges;
-        assert!(Arc::ptr_eq(&ranges1a, &ranges1b));
+        assert!(Arc::ptr_eq(ranges1a, ranges1b));
         assert_catalog_access_metric_count(
             &catalog.metric_registry,
             "partition_get_by_hash_id_batch",
@@ -828,7 +851,8 @@ mod tests {
             .get_one(Arc::clone(&cached_table), &p_id, &[], None)
             .await
             .unwrap()
-            .sort_key;
+            .sort_key
+            .clone();
         assert_eq!(sort_key, None,);
         assert_catalog_access_metric_count(
             &catalog.metric_registry,
@@ -842,7 +866,8 @@ mod tests {
             .get_one(Arc::clone(&cached_table), &p_id, &[], None)
             .await
             .unwrap()
-            .sort_key;
+            .sort_key
+            .clone();
         assert_eq!(sort_key, None,);
         assert_catalog_access_metric_count(
             &catalog.metric_registry,
@@ -855,7 +880,8 @@ mod tests {
             .get_one(Arc::clone(&cached_table), &p_id, &[c1.column.id], None)
             .await
             .unwrap()
-            .sort_key;
+            .sort_key
+            .clone();
         assert_eq!(sort_key, None,);
         assert_catalog_access_metric_count(
             &catalog.metric_registry,
@@ -865,10 +891,10 @@ mod tests {
 
         // set sort key
         let p = p
-            .update_sort_key(SortKey::from_columns([
-                c1.column.name.as_str(),
-                c2.column.name.as_str(),
-            ]))
+            .update_sort_key(
+                SortKey::from_columns([c1.column.name.as_str(), c2.column.name.as_str()]),
+                &SortedColumnSet::from([c1.column.id.get(), c2.column.id.get()]),
+            )
             .await;
         assert_catalog_access_metric_count(&catalog.metric_registry, "partition_get_by_hash_id", 1);
 
@@ -878,7 +904,8 @@ mod tests {
             .get_one(Arc::clone(&cached_table), &p_id, &[c1.column.id], None)
             .await
             .unwrap()
-            .sort_key;
+            .sort_key
+            .clone();
         assert_eq!(
             sort_key.as_ref().unwrap().as_ref(),
             &PartitionSortKey {
@@ -904,7 +931,8 @@ mod tests {
                 .get_one(Arc::clone(&cached_table), &p_id, &should_cover, None)
                 .await
                 .unwrap()
-                .sort_key;
+                .sort_key
+                .clone();
             assert!(Arc::ptr_eq(
                 sort_key.as_ref().unwrap(),
                 sort_key_2.as_ref().unwrap()
@@ -927,7 +955,8 @@ mod tests {
             )
             .await
             .unwrap()
-            .sort_key;
+            .sort_key
+            .clone();
         assert!(!Arc::ptr_eq(
             sort_key.as_ref().unwrap(),
             sort_key_2.as_ref().unwrap()
@@ -1003,7 +1032,7 @@ mod tests {
             )
             .await;
         res.sort_by(|a, b| a.id.cmp(&b.id));
-        let ids = res.into_iter().map(|p| p.id).collect::<Vec<_>>();
+        let ids = res.into_iter().map(|p| p.id.clone()).collect::<Vec<_>>();
         assert_eq!(ids, vec![p1_id.clone(), p1_id, p2_id]);
         assert_catalog_access_metric_count(
             &catalog.metric_registry,
@@ -1028,6 +1057,84 @@ mod tests {
         for _ in 0..10 {
             test_multi_table_concurrent_get_inner().await;
         }
+    }
+
+    #[test]
+    fn test_partition_sort_key() {
+        // map column id -> name
+        let column_id_map = HashMap::from([
+            (ColumnId::new(1), Arc::from("tag1")),
+            (ColumnId::new(2), Arc::from("tag2")),
+            (ColumnId::new(3), Arc::from("tag3")),
+            (ColumnId::new(4), Arc::from("time")),
+            (ColumnId::new(5), Arc::from("field1")),
+            (ColumnId::new(6), Arc::from("field2")),
+        ]);
+
+        // same order of the columns
+        let sort_key_ids = SortedColumnSet::from(vec![1, 2, 3, 4]);
+        let p_sort_key = PartitionSortKey::new(sort_key_ids, &column_id_map);
+        assert_eq!(
+            p_sort_key,
+            PartitionSortKey {
+                sort_key: Arc::new(SortKey::from_columns(vec!["tag1", "tag2", "tag3", "time"])),
+                column_set: HashSet::from([
+                    ColumnId::new(1),
+                    ColumnId::new(2),
+                    ColumnId::new(3),
+                    ColumnId::new(4)
+                ]),
+                column_order: [
+                    ColumnId::new(1),
+                    ColumnId::new(2),
+                    ColumnId::new(3),
+                    ColumnId::new(4)
+                ]
+                .into(),
+            }
+        );
+
+        // different order
+        let sort_key_ids = SortedColumnSet::from(vec![3, 1, 4]);
+        let p_sort_key = PartitionSortKey::new(sort_key_ids, &column_id_map);
+        assert_eq!(
+            p_sort_key,
+            PartitionSortKey {
+                sort_key: Arc::new(SortKey::from_columns(vec!["tag3", "tag1", "time"])),
+                column_set: HashSet::from([ColumnId::new(3), ColumnId::new(1), ColumnId::new(4)]),
+                column_order: [ColumnId::new(3), ColumnId::new(1), ColumnId::new(4)].into(),
+            }
+        );
+
+        // only time
+        let sort_key_ids = SortedColumnSet::from(vec![4]);
+        let p_sort_key = PartitionSortKey::new(sort_key_ids, &column_id_map);
+        assert_eq!(
+            p_sort_key,
+            PartitionSortKey {
+                sort_key: Arc::new(SortKey::from_columns(vec!["time"])),
+                column_set: HashSet::from([ColumnId::new(4)]),
+                column_order: [ColumnId::new(4)].into(),
+            }
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "column_id_map misses data for column id: 9")]
+    fn test_partition_sort_key_panic() {
+        // map column id -> name
+        let column_id_map = HashMap::from([
+            (ColumnId::new(1), Arc::from("tag1")),
+            (ColumnId::new(2), Arc::from("tag2")),
+            (ColumnId::new(3), Arc::from("tag3")),
+            (ColumnId::new(4), Arc::from("time")),
+            (ColumnId::new(5), Arc::from("field1")),
+            (ColumnId::new(6), Arc::from("field2")),
+        ]);
+
+        // same order of the columns
+        let sort_key_ids = SortedColumnSet::from(vec![1, 9]);
+        let _sort_key = PartitionSortKey::new(sort_key_ids, &column_id_map);
     }
 
     /// Actually implementation of [`test_multi_table_concurrent_get`] that is tried multiple times.
@@ -1110,11 +1217,12 @@ mod tests {
                 partition_template: TablePartitionTemplateOverride::default(),
             });
             const N_PARTITIONS: usize = 20;
+            let c_id = c.column.id.get();
             let mut partitions = futures::stream::iter(0..N_PARTITIONS)
                 .then(|i| {
                     let t = Arc::clone(&t);
                     async move {
-                        t.create_partition_with_sort_key(&format!("p{i}"), &["time"])
+                        t.create_partition_with_sort_key(&format!("p{i}"), &["time"], &[c_id])
                             .await
                             .partition
                             .transition_partition_id()
@@ -1175,7 +1283,7 @@ mod tests {
             partition_id: &TransitionPartitionId,
             sort_key_should_cover: &[ColumnId],
             span: Option<Span>,
-        ) -> Option<CachedPartition>;
+        ) -> Option<Arc<CachedPartition>>;
     }
 
     #[async_trait]
@@ -1186,7 +1294,7 @@ mod tests {
             partition_id: &TransitionPartitionId,
             sort_key_should_cover: &[ColumnId],
             span: Option<Span>,
-        ) -> Option<CachedPartition> {
+        ) -> Option<Arc<CachedPartition>> {
             self.get(
                 cached_table,
                 vec![PartitionRequest {

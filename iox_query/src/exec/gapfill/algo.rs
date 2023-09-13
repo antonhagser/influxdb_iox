@@ -7,7 +7,7 @@ use std::{ops::Range, sync::Arc};
 
 use arrow::{
     array::{Array, ArrayRef, TimestampNanosecondArray, UInt64Array},
-    compute::{kernels::take, SortColumn},
+    compute::{kernels::take, partition},
     datatypes::SchemaRef,
     record_batch::RecordBatch,
 };
@@ -174,13 +174,10 @@ impl GapFiller {
 
         let sort_columns = group_arr
             .iter()
-            .map(|(_, arr)| SortColumn {
-                values: Arc::clone(arr),
-                options: None,
-            })
+            .map(|(_, arr)| Arc::clone(arr))
             .collect::<Vec<_>>();
-        let mut ranges = arrow::compute::lexicographical_partition_ranges(&sort_columns)
-            .map_err(DataFusionError::ArrowError)?;
+
+        let mut ranges = partition(&sort_columns)?.ranges().into_iter();
 
         let mut series_ends = vec![];
         let mut cursor = self.cursor.clone_for_aggr_col(None)?;
@@ -237,7 +234,7 @@ impl GapFiller {
         let mut final_cursor = cursor;
 
         // build the other group columns
-        for (idx, ga) in group_arr.iter() {
+        for (idx, ga) in group_arr {
             let mut cursor = self.cursor.clone_for_aggr_col(None)?;
             let take_vec =
                 cursor.build_group_take_vec(&self.params, series_ends, input_time_array)?;
@@ -253,7 +250,7 @@ impl GapFiller {
         }
 
         // Build the aggregate columns
-        for (idx, aa) in aggr_arr.iter() {
+        for (idx, aa) in aggr_arr {
             let mut cursor = self.cursor.clone_for_aggr_col(Some(*idx))?;
             let output_array =
                 cursor.build_aggr_col(&self.params, series_ends, input_time_array, aa)?;
@@ -420,7 +417,7 @@ impl Cursor {
     /// Update this cursor to reflect that `offset` older rows are being sliced off from the
     /// buffered input.
     fn slice(&mut self, offset: usize, batch: &RecordBatch) -> Result<()> {
-        for (idx, aggr_col_state) in self.aggr_col_states.iter_mut() {
+        for (idx, aggr_col_state) in &mut self.aggr_col_states {
             aggr_col_state.slice(offset, batch.column(*idx))?;
         }
         self.next_input_offset -= offset;
@@ -716,7 +713,7 @@ impl Cursor {
         series_ends: &[usize],
         vec_builder: &mut impl VecBuilder,
     ) -> Result<()> {
-        for series in series_ends.iter() {
+        for series in series_ends {
             if self
                 .next_ts
                 .map_or(false, |next_ts| next_ts > params.last_ts)
@@ -922,6 +919,7 @@ trait VecBuilder {
 }
 
 /// The state of an input row relative to gap-filled output.
+#[derive(Debug)]
 enum RowStatus {
     /// This row had a null timestamp in the input.
     NullTimestamp {
@@ -964,7 +962,7 @@ impl StashedAggrBuilder<'_> {
     /// `input_aggr_array` at `offset` for use with the [`interleave`](arrow::compute::interleave)
     /// kernel.
     fn create_stash(input_aggr_array: &ArrayRef, offset: u64) -> Result<ArrayRef> {
-        let take_arr = vec![None, Some(offset)].into();
+        let take_arr: UInt64Array = vec![None, Some(offset)].into();
         let stash =
             take::take(input_aggr_array, &take_arr, None).map_err(DataFusionError::ArrowError)?;
         Ok(stash)
