@@ -352,26 +352,38 @@ fn validate_schema_limits_of_batches(
     batches: &HashMap<String, MutableBatch>,
     schema: &NamespaceSchema,
 ) -> Result<(), CachedServiceProtectionLimit> {
-    // Maintain a counter tracking the number of tables in `batches` that do not
+    validate_schema_limits(
+        batches.into_iter().map(|(table_name, batch)| {
+            (
+                table_name.as_str(),
+                batch.columns().map(|(key, _value)| key.as_str()).collect(),
+            )
+        }),
+        schema,
+    )
+}
+
+fn validate_schema_limits<'a>(
+    column_names_by_table: impl Iterator<Item = (&'a str, BTreeSet<&'a str>)>,
+    schema: &'a NamespaceSchema,
+) -> Result<(), CachedServiceProtectionLimit> {
+    // Maintain a counter tracking the number of tables in `columns_by_table` that do not
     // exist in `schema`.
     //
-    // This number of tables would be newly created when accepting the write.
+    // This number of tables would be newly created when accepting this schema change.
     let mut new_tables = 0;
 
-    for (table_name, batch_columns) in batches
-        .into_iter()
-        .map(|(table_name, batch)| (table_name, batch.columns()))
-    {
+    for (table_name, mut column_names) in column_names_by_table {
         // Get the column set for this table from the schema.
         let mut existing_columns = match schema.tables.get(table_name) {
             Some(v) => v.column_names(),
-            None if batch_columns.len() > schema.max_columns_per_table.get() as usize => {
+            None if column_names.len() > schema.max_columns_per_table.get() as usize => {
                 // The table does not exist, therefore all the columns in this
-                // write must be created - there's no need to perform a set
+                // schema change must be created - there's no need to perform a set
                 // union to discover the distinct column count.
                 return Err(CachedServiceProtectionLimit::Column {
                     table_name: table_name.into(),
-                    merged_column_count: batch_columns.len(),
+                    merged_column_count: column_names.len(),
                     existing_column_count: 0,
                     max_columns_per_table: schema.max_columns_per_table.get() as usize,
                 });
@@ -386,7 +398,7 @@ fn validate_schema_limits_of_batches(
                 // Enforcing the check here ensures table limits are validated
                 // only when new tables are being created - this ensures
                 // existing tables do not become unusable if the limit is
-                // lowered, or because multiple writes were concurrently
+                // lowered, or because multiple schema changes were concurrently
                 // submitted to multiple router instances, exceeding the schema
                 // limit by some degree (eventual enforcement).
                 let merged_table_count = schema.tables.len() + new_tables;
@@ -398,32 +410,30 @@ fn validate_schema_limits_of_batches(
                     });
                 }
 
-                // Therefore all the columns in this write are new, and they are
+                // Therefore all the columns in this schema change are new, and they are
                 // less than the maximum permitted number of columns.
                 continue;
             }
         };
 
-        // The union of existing columns and new columns in this write must be
+        // The union of existing columns and new columns in this schema change must be
         // calculated to derive the total distinct column count for this table
-        // after this write applied.
+        // after this schema change is applied.
         let existing_column_count = existing_columns.len();
-        let mut batch_column_names: BTreeSet<_> =
-            batch_columns.map(|(key, _value)| key.as_str()).collect();
 
         let merged_column_count = {
-            existing_columns.append(&mut batch_column_names);
+            existing_columns.append(&mut column_names);
             existing_columns.len()
         };
 
-        // If the table is currently over the column limit but this write only
+        // If the table is currently over the column limit but this schema change only
         // includes existing columns and doesn't exceed the limit more, this is
         // allowed.
-        let columns_were_added_in_this_batch = merged_column_count > existing_column_count;
+        let columns_were_added = merged_column_count > existing_column_count;
         let column_limit_exceeded =
             merged_column_count > schema.max_columns_per_table.get() as usize;
 
-        if columns_were_added_in_this_batch && column_limit_exceeded {
+        if columns_were_added && column_limit_exceeded {
             return Err(CachedServiceProtectionLimit::Column {
                 table_name: table_name.into(),
                 merged_column_count,
