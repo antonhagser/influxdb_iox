@@ -1,4 +1,4 @@
-use std::{ops::DerefMut, sync::Arc};
+use std::{collections::BTreeSet, ops::DerefMut, sync::Arc};
 
 use async_trait::async_trait;
 use data_types::{
@@ -358,17 +358,20 @@ fn validate_schema_limits(
     // This number of tables would be newly created when accepting the write.
     let mut new_tables = 0;
 
-    for (table_name, batch) in batches {
+    for (table_name, batch_columns) in batches
+        .into_iter()
+        .map(|(table_name, batch)| (table_name, batch.columns()))
+    {
         // Get the column set for this table from the schema.
         let mut existing_columns = match schema.tables.get(table_name) {
             Some(v) => v.column_names(),
-            None if batch.columns().len() > schema.max_columns_per_table.get() as usize => {
+            None if batch_columns.len() > schema.max_columns_per_table.get() as usize => {
                 // The table does not exist, therefore all the columns in this
                 // write must be created - there's no need to perform a set
                 // union to discover the distinct column count.
                 return Err(CachedServiceProtectionLimit::Column {
                     table_name: table_name.into(),
-                    merged_column_count: batch.columns().len(),
+                    merged_column_count: batch_columns.len(),
                     existing_column_count: 0,
                     max_columns_per_table: schema.max_columns_per_table.get() as usize,
                 });
@@ -405,9 +408,11 @@ fn validate_schema_limits(
         // calculated to derive the total distinct column count for this table
         // after this write applied.
         let existing_column_count = existing_columns.len();
+        let mut batch_column_names: BTreeSet<_> =
+            batch_columns.map(|(key, _value)| key.as_str()).collect();
 
         let merged_column_count = {
-            existing_columns.append(&mut batch.column_names());
+            existing_columns.append(&mut batch_column_names);
             existing_columns.len()
         };
 
