@@ -496,6 +496,7 @@ where
         namespace_name: String,
         is_debug: bool,
     ) -> Result<Response<TonicStream<FlightData>>, tonic::Status> {
+        print!("chunchun run_do_get\n");
         let db = self
             .server
             .db(
@@ -699,7 +700,7 @@ where
         if let Some(header) = response_header {
             response.metadata_mut().insert("authorization", header);
         }
-        print!("chunchun handshake");
+        print!("chunchun handshake\n");
         Ok(response)
     }
 
@@ -774,6 +775,7 @@ where
             .context(InternalCreatingTicketSnafu)?;
 
         let endpoint = FlightEndpoint::new().with_ticket(ticket);
+        print!("chunchun flight endpoint {endpoint}\n");
 
         let flight_info = FlightInfo::new()
             .with_endpoint(endpoint)
@@ -782,7 +784,7 @@ where
             .try_with_schema(schema.as_ref())
             .context(EncodeSchemaSnafu)?;
 
-        print!("chunchun get_flight_info");
+        print!("chunchun get_flight_info\n");
         Ok(tonic::Response::new(flight_info))
     }
 
@@ -799,6 +801,7 @@ where
         &self,
         request: Request<Action>,
     ) -> Result<Response<Self::DoActionStream>, tonic::Status> {
+        print!("chunchun do_action\n");
         let external_span_ctx: Option<RequestLogContext> = request.extensions().get().cloned();
         let span_ctx: Option<SpanContext> = request.extensions().get().cloned();
         let trace = external_span_ctx.format_jaeger();
@@ -871,6 +874,7 @@ where
 /// Extracts an encoded Protobuf message from a [`FlightDescriptor`],
 /// as used in FlightSQL.
 fn cmd_from_descriptor(flight_descriptor: FlightDescriptor) -> Result<FlightSQLCommand> {
+    print!("chunchun cmd_from_descriptor\n");
     match flight_descriptor.r#type() {
         DescriptorType::Cmd => Ok(FlightSQLCommand::try_decode(flight_descriptor.cmd)?),
         DescriptorType::Path => Err(Error::unsupported_message_type("FlightInfo with Path")),
@@ -892,6 +896,7 @@ fn cmd_from_descriptor(flight_descriptor: FlightDescriptor) -> Result<FlightSQLC
 /// some period of time until we are sure that all other software speaking
 /// FlightSQL is using the new header names.
 fn get_flightsql_namespace(metadata: &MetadataMap) -> Result<String> {
+    print!("chunchun get_flightsql_namespace\n");
     let mut found_header_keys: Vec<String> = vec![];
 
     for key in IOX_FLIGHT_SQL_DATABASE_HEADERS {
@@ -923,10 +928,12 @@ fn get_flightsql_namespace(metadata: &MetadataMap) -> Result<String> {
 
 /// Retrieve the authorization token associated with the request.
 fn get_flight_authz(metadata: &MetadataMap) -> Option<Vec<u8>> {
+    print!("chunchun get_flight_authz\n");
     extract_token(metadata.get("authorization"))
 }
 
 fn flightsql_permissions(namespace_name: &str, cmd: &FlightSQLCommand) -> Vec<authz::Permission> {
+    print!("chunchun flightsql_permissions\n");
     let resource = authz::Resource::Database(namespace_name.to_string());
     let action = match cmd {
         FlightSQLCommand::CommandStatementQuery(_) => authz::Action::Read,
@@ -976,6 +983,7 @@ impl GetStream {
         query_completed_token: QueryCompletedToken,
         permit: InstrumentedAsyncOwnedSemaphorePermit,
     ) -> Result<Self, tonic::Status> {
+        print!("chunchun GetSream new\n");
         let app_metadata = proto::AppMetadata {};
 
         let schema = physical_plan.schema();
@@ -1017,6 +1025,7 @@ impl Stream for GetStream {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
+        print!("chunchun Stream poll_next\n");
         loop {
             if self.done {
                 return Poll::Ready(None);
