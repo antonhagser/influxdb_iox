@@ -102,7 +102,8 @@ impl PartitionProvider for CatalogPartitionResolver {
             .expect("retry forever");
 
         // build sort_key from sort_key_ids and columns
-        let sort_key = build_sort_key_from_sort_key_ids_and_columns(&p_sort_key_ids, &columns);
+        let sort_key =
+            build_sort_key_from_sort_key_ids_and_columns(&p_sort_key_ids, columns.into_iter());
 
         // This is here to catch bugs and will be removed once the sort_key is removed from the partition
         assert_eq!(sort_key, p_sort_key);

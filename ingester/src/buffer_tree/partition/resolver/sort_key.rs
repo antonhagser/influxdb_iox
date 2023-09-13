@@ -51,8 +51,10 @@ impl SortKeyResolver {
                 let columns = repos.columns().list_by_table_id(self.table_id).await?;
 
                 // build sort_key from sort_key_ids and columns
-                let sort_key =
-                    build_sort_key_from_sort_key_ids_and_columns(&p_sort_key_ids, &columns);
+                let sort_key = build_sort_key_from_sort_key_ids_and_columns(
+                    &p_sort_key_ids,
+                    columns.into_iter(),
+                );
 
                 // This is here to catch bugs and will be removed once the sort_key is removed from the partition
                 assert_eq!(sort_key, p_sort_key);
@@ -66,23 +68,22 @@ impl SortKeyResolver {
 
 // build sort_key from sort_key_ids and columns
 // panic if the sort_key_ids are not found in the columns
-pub(crate) fn build_sort_key_from_sort_key_ids_and_columns(
+pub(crate) fn build_sort_key_from_sort_key_ids_and_columns<I>(
     sort_key_ids: &Option<SortedColumnSet>,
-    columns: &[Column],
-) -> Option<SortKey> {
+    columns: I,
+) -> Option<SortKey>
+where
+    I: Iterator<Item = Column>,
+{
+    let mut column_names = columns
+        .map(|c| (c.id, c.name))
+        .collect::<hashbrown::HashMap<_, _>>();
     sort_key_ids.as_ref().map(|ids| {
-        let names = ids
-            .iter()
-            .map(|id| {
-                columns
-                    .iter()
-                    .find(|c| c.id == *id)
-                    .map(|c| c.name.clone())
-                    .expect("Cannot find column names for sort key ids")
-            })
-            .collect::<Vec<_>>();
-
-        SortKey::from_columns(names.iter().map(|s| &**s))
+        SortKey::from_columns(ids.iter().map(|id| {
+            column_names
+                .remove(id)
+                .unwrap_or_else(|| panic!("cannot find column names for sort key id {}", id.get()))
+        }))
     })
 }
 
@@ -160,7 +161,7 @@ mod tests {
 
     // panic if the sort_key_ids are not found in the columns
     #[tokio::test]
-    #[should_panic(expected = "Cannot find column names for sort key ids")]
+    #[should_panic(expected = "cannot find column names for sort key id 3")]
     async fn test_panic_build_sort_key_from_sort_key_ids_and_columns() {
         // table columns
         let columns = vec![
@@ -180,7 +181,8 @@ mod tests {
 
         // sort_key_ids include some columns that are not in the columns
         let sort_key_ids = Some(SortedColumnSet::from([2, 3]));
-        let _sort_key = build_sort_key_from_sort_key_ids_and_columns(&sort_key_ids, &columns);
+        let _sort_key =
+            build_sort_key_from_sort_key_ids_and_columns(&sort_key_ids, columns.into_iter());
     }
 
     #[tokio::test]
@@ -209,18 +211,27 @@ mod tests {
 
         // sort_key_ids is None
         let sort_key_ids = None;
-        let sort_key = build_sort_key_from_sort_key_ids_and_columns(&sort_key_ids, &columns);
+        let sort_key = build_sort_key_from_sort_key_ids_and_columns(
+            &sort_key_ids,
+            columns.clone().into_iter(),
+        );
         assert_eq!(sort_key, None);
 
         // sort_key_ids is empty
         let sort_key_ids = Some(SortedColumnSet::new(vec![]));
-        let sort_key = build_sort_key_from_sort_key_ids_and_columns(&sort_key_ids, &columns);
+        let sort_key = build_sort_key_from_sort_key_ids_and_columns(
+            &sort_key_ids,
+            columns.clone().into_iter(),
+        );
         let vec: Vec<&str> = vec![];
         assert_eq!(sort_key, Some(SortKey::from_columns(vec)));
 
         // sort_key_ids include all columns and in the same order
         let sort_key_ids = Some(SortedColumnSet::from([1, 2, 3]));
-        let sort_key = build_sort_key_from_sort_key_ids_and_columns(&sort_key_ids, &columns);
+        let sort_key = build_sort_key_from_sort_key_ids_and_columns(
+            &sort_key_ids,
+            columns.clone().into_iter(),
+        );
         assert_eq!(
             sort_key,
             Some(SortKey::from_columns(vec!["uno", "dos", "tres"]))
@@ -228,7 +239,10 @@ mod tests {
 
         // sort_key_ids include all columns but in different order
         let sort_key_ids = Some(SortedColumnSet::from([2, 3, 1]));
-        let sort_key = build_sort_key_from_sort_key_ids_and_columns(&sort_key_ids, &columns);
+        let sort_key = build_sort_key_from_sort_key_ids_and_columns(
+            &sort_key_ids,
+            columns.clone().into_iter(),
+        );
         assert_eq!(
             sort_key,
             Some(SortKey::from_columns(vec!["dos", "tres", "uno"]))
@@ -236,12 +250,18 @@ mod tests {
 
         // sort_key_ids include some columns
         let sort_key_ids = Some(SortedColumnSet::from([2, 3]));
-        let sort_key = build_sort_key_from_sort_key_ids_and_columns(&sort_key_ids, &columns);
+        let sort_key = build_sort_key_from_sort_key_ids_and_columns(
+            &sort_key_ids,
+            columns.clone().into_iter(),
+        );
         assert_eq!(sort_key, Some(SortKey::from_columns(vec!["dos", "tres"])));
 
         // sort_key_ids include some columns in different order
         let sort_key_ids = Some(SortedColumnSet::from([3, 1]));
-        let sort_key = build_sort_key_from_sort_key_ids_and_columns(&sort_key_ids, &columns);
+        let sort_key = build_sort_key_from_sort_key_ids_and_columns(
+            &sort_key_ids,
+            columns.clone().into_iter(),
+        );
         assert_eq!(sort_key, Some(SortKey::from_columns(vec!["tres", "uno"])));
     }
 }
