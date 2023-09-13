@@ -1356,6 +1356,7 @@ dependencies = [
  "chrono",
  "croaring",
  "generated_types",
+ "hashbrown 0.14.0",
  "hex",
  "influxdb-line-protocol",
  "iox_time",
@@ -1370,6 +1371,7 @@ dependencies = [
  "sqlx",
  "test_helpers",
  "thiserror",
+ "tokio",
  "uuid",
  "workspace-hack",
 ]

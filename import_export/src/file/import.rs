@@ -530,16 +530,15 @@ impl RemoteImporter {
             .exported_contents
             .partition_metadata(iox_metadata.table_id.get(), partition_key.inner());
 
-        let (new_sort_key, new_sort_key_ids) = if let Some(proto_partition) =
-            proto_partition.as_ref()
-        {
-            // Use the sort key from the source catalog
-            debug!(array_sort_key=?proto_partition.array_sort_key, "Using sort key from catalog export");
-            let new_sort_key = proto_partition
-                .array_sort_key
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<&str>>();
+        // let (new_sort_key, new_sort_key_ids) = if let Some(proto_partition) =
+        let new_sort_key_ids = if let Some(proto_partition) = proto_partition.as_ref() {
+            // // Use the sort key from the source catalog
+            // debug!(array_sort_key=?proto_partition.array_sort_key, "Using sort key from catalog export");
+            // let new_sort_key = proto_partition
+            //     .array_sort_key
+            //     .iter()
+            //     .map(|s| s.as_str())
+            //     .collect::<Vec<&str>>();
 
             let new_sort_key_ids = match &proto_partition.sort_key_ids {
                 Some(sort_key_ids) => sort_key_ids.array_sort_key_ids.clone(),
@@ -547,7 +546,8 @@ impl RemoteImporter {
             };
             let new_sort_key_ids = SortedColumnSet::from(new_sort_key_ids);
 
-            (new_sort_key, new_sort_key_ids)
+            // (new_sort_key, new_sort_key_ids)
+            new_sort_key_ids
         } else {
             warn!("Could not find sort key in catalog metadata export, falling back to embedded metadata");
             let sort_key = iox_metadata
@@ -561,13 +561,23 @@ impl RemoteImporter {
             let columns = ColumnsByName::new(repos.columns().list_by_table_id(table.id).await?);
             let new_sort_key_ids = columns.ids_for_names(&new_sort_key);
 
-            (new_sort_key, new_sort_key_ids)
+            // (new_sort_key, new_sort_key_ids)
+            new_sort_key_ids
         };
 
-        if !partition.sort_key.is_empty() && partition.sort_key != new_sort_key {
-            let exported = new_sort_key.join(",");
-            let existing = partition.sort_key.join(",");
-            return Err(Error::MismatchedSortKey { exported, existing });
+        // if !partition.sort_key.is_empty() && partition.sort_key != new_sort_key {
+        //     let exported = new_sort_key.join(",");
+        //     let existing = partition.sort_key.join(",");
+        //     return Err(Error::MismatchedSortKey { exported, existing });
+        // }
+
+        if !partition.sort_key_ids_none_if_empty().is_none()
+            && *partition.sort_key_ids.as_ref().unwrap() != new_sort_key_ids
+        {
+            return Err(Error::MismatchedSortKey {
+                exported: new_sort_key_ids.to_string(),
+                existing: partition.sort_key_ids.as_ref().unwrap().to_string(),
+            });
         }
 
         loop {
@@ -575,9 +585,9 @@ impl RemoteImporter {
                 .partitions()
                 .cas_sort_key(
                     &partition.transition_partition_id(),
-                    Some(partition.sort_key.clone()),
+                    // Some(partition.sort_key.clone()),
                     partition.sort_key_ids.clone(),
-                    &new_sort_key,
+                    // &new_sort_key,
                     &new_sort_key_ids,
                 )
                 .await;

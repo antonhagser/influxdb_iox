@@ -3,7 +3,7 @@
 use super::TableId;
 use generated_types::influxdata::iox::{gossip, schema::v1 as proto};
 use influxdb_line_protocol::FieldValue;
-use schema::{builder::SchemaBuilder, InfluxColumnType, InfluxFieldType, Schema};
+use schema::{builder::SchemaBuilder, sort::SortKey, InfluxColumnType, InfluxFieldType, Schema};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     convert::TryFrom,
@@ -437,6 +437,15 @@ impl SortedColumnSet {
     pub fn size(&self) -> usize {
         std::mem::size_of_val(self) + (std::mem::size_of::<ColumnId>() * self.0.capacity())
     }
+
+    /// Return a string of the column ids separated by commas
+    pub fn to_string(&self) -> String {
+        self.0
+            .iter()
+            .map(|id| id.get().to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    }
 }
 
 impl From<SortedColumnSet> for Vec<ColumnId> {
@@ -460,6 +469,27 @@ where
     fn from(ids: I) -> Self {
         Self::new(ids.into_iter().map(ColumnId::new).collect::<Vec<_>>())
     }
+}
+
+/// build sort_key from sort_key_ids and columns
+/// panic if the sort_key_ids are not found in the columns
+pub fn build_sort_key_from_sort_key_ids_and_columns<I>(
+    sort_key_ids: &Option<SortedColumnSet>,
+    columns: I,
+) -> Option<SortKey>
+where
+    I: Iterator<Item = Column>,
+{
+    let mut column_names = columns
+        .map(|c| (c.id, c.name))
+        .collect::<hashbrown::HashMap<_, _>>();
+    sort_key_ids.as_ref().map(|ids| {
+        SortKey::from_columns(ids.iter().map(|id| {
+            column_names
+                .remove(id)
+                .unwrap_or_else(|| panic!("cannot find column names for sort key id {}", id.get()))
+        }))
+    })
 }
 
 #[cfg(test)]
@@ -609,5 +639,111 @@ mod tests {
         );
 
         ColumnsByName(columns)
+    }
+
+    // panic if the sort_key_ids are not found in the columns
+    #[tokio::test]
+    #[should_panic(expected = "cannot find column names for sort key id 3")]
+    async fn test_panic_build_sort_key_from_sort_key_ids_and_columns() {
+        // table columns
+        let columns = vec![
+            Column {
+                name: "uno".into(),
+                id: ColumnId::new(1),
+                column_type: ColumnType::Tag,
+                table_id: TableId::new(1),
+            },
+            Column {
+                name: "dos".into(),
+                id: ColumnId::new(2),
+                column_type: ColumnType::Tag,
+                table_id: TableId::new(1),
+            },
+        ];
+
+        // sort_key_ids include some columns that are not in the columns
+        let sort_key_ids = Some(SortedColumnSet::from([2, 3]));
+        let _sort_key =
+            build_sort_key_from_sort_key_ids_and_columns(&sort_key_ids, columns.into_iter());
+    }
+
+    #[tokio::test]
+    async fn test_build_sort_key_from_sort_key_ids_and_columns() {
+        // table columns
+        let columns = vec![
+            Column {
+                name: "uno".into(),
+                id: ColumnId::new(1),
+                column_type: ColumnType::Tag,
+                table_id: TableId::new(1),
+            },
+            Column {
+                name: "dos".into(),
+                id: ColumnId::new(2),
+                column_type: ColumnType::Tag,
+                table_id: TableId::new(1),
+            },
+            Column {
+                name: "tres".into(),
+                id: ColumnId::new(3),
+                column_type: ColumnType::Tag,
+                table_id: TableId::new(1),
+            },
+        ];
+
+        // sort_key_ids is None
+        let sort_key_ids = None;
+        let sort_key = build_sort_key_from_sort_key_ids_and_columns(
+            &sort_key_ids,
+            columns.clone().into_iter(),
+        );
+        assert_eq!(sort_key, None);
+
+        // sort_key_ids is empty
+        let sort_key_ids = Some(SortedColumnSet::new(vec![]));
+        let sort_key = build_sort_key_from_sort_key_ids_and_columns(
+            &sort_key_ids,
+            columns.clone().into_iter(),
+        );
+        let vec: Vec<&str> = vec![];
+        assert_eq!(sort_key, Some(SortKey::from_columns(vec)));
+
+        // sort_key_ids include all columns and in the same order
+        let sort_key_ids = Some(SortedColumnSet::from([1, 2, 3]));
+        let sort_key = build_sort_key_from_sort_key_ids_and_columns(
+            &sort_key_ids,
+            columns.clone().into_iter(),
+        );
+        assert_eq!(
+            sort_key,
+            Some(SortKey::from_columns(vec!["uno", "dos", "tres"]))
+        );
+
+        // sort_key_ids include all columns but in different order
+        let sort_key_ids = Some(SortedColumnSet::from([2, 3, 1]));
+        let sort_key = build_sort_key_from_sort_key_ids_and_columns(
+            &sort_key_ids,
+            columns.clone().into_iter(),
+        );
+        assert_eq!(
+            sort_key,
+            Some(SortKey::from_columns(vec!["dos", "tres", "uno"]))
+        );
+
+        // sort_key_ids include some columns
+        let sort_key_ids = Some(SortedColumnSet::from([2, 3]));
+        let sort_key = build_sort_key_from_sort_key_ids_and_columns(
+            &sort_key_ids,
+            columns.clone().into_iter(),
+        );
+        assert_eq!(sort_key, Some(SortKey::from_columns(vec!["dos", "tres"])));
+
+        // sort_key_ids include some columns in different order
+        let sort_key_ids = Some(SortedColumnSet::from([3, 1]));
+        let sort_key = build_sort_key_from_sort_key_ids_and_columns(
+            &sort_key_ids,
+            columns.clone().into_iter(),
+        );
+        assert_eq!(sort_key, Some(SortKey::from_columns(vec!["tres", "uno"])));
     }
 }

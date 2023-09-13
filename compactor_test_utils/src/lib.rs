@@ -43,8 +43,8 @@ use compactor::{
 };
 use compactor_scheduler::SchedulerConfig;
 use data_types::{
-    ColumnType, CompactionLevel, ParquetFile, PartitionId, SortedColumnSet, TableId,
-    TransitionPartitionId,
+    build_sort_key_from_sort_key_ids_and_columns, ColumnType, CompactionLevel, ParquetFile,
+    PartitionId, SortedColumnSet, TableId, TransitionPartitionId,
 };
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion_util::config::register_iox_object_store;
@@ -630,6 +630,20 @@ impl<const WITH_FILES: bool> TestSetupBuilder<WITH_FILES> {
 
     /// Create a [`TestSetup`]
     pub async fn build(self) -> TestSetup {
+        let sort_key_ids = self.partition.partition.sort_key_ids_none_if_empty();
+        // reads columns of the partition's table
+        let columns = self
+            .catalog
+            .catalog
+            .repositories()
+            .await
+            .columns()
+            .list_by_table_id(self.partition.partition.table_id)
+            .await
+            .unwrap();
+        let sort_key =
+            build_sort_key_from_sort_key_ids_and_columns(&sort_key_ids, columns.into_iter());
+
         let candidate_partition = Arc::new(PartitionInfo {
             partition_id: self.partition.partition.id,
             partition_hash_id: self.partition.partition.hash_id().cloned(),
@@ -637,7 +651,8 @@ impl<const WITH_FILES: bool> TestSetupBuilder<WITH_FILES> {
             namespace_name: self.ns.namespace.name.clone(),
             table: Arc::new(self.table.table.clone()),
             table_schema: Arc::new(self.table.catalog_schema().await),
-            sort_key: self.partition.partition.sort_key(),
+            // sort_key: self.partition.partition.sort_key(),
+            sort_key,
             partition_key: self.partition.partition.partition_key.clone(),
         });
 

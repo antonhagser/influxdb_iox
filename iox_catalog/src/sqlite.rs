@@ -850,14 +850,23 @@ impl PartitionRepo for SqliteTxn {
         let hash_id = PartitionHashId::new(table_id, &key);
 
         let v = sqlx::query_as::<_, PartitionPod>(
+            //             r#"
+            // INSERT INTO partition
+            //     (partition_key, shard_id, table_id, hash_id, sort_key, sort_key_ids)
+            // VALUES
+            //     ($1, $2, $3, $4, '[]', '[]')
+            // ON CONFLICT (table_id, partition_key)
+            // DO UPDATE SET partition_key = partition.partition_key
+            // RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
+            //         "#,
             r#"
 INSERT INTO partition
-    (partition_key, shard_id, table_id, hash_id, sort_key, sort_key_ids)
+    (partition_key, shard_id, table_id, hash_id, sort_key_ids)
 VALUES
-    ($1, $2, $3, $4, '[]', '[]')
+    ($1, $2, $3, $4, '[]')
 ON CONFLICT (table_id, partition_key)
 DO UPDATE SET partition_key = partition.partition_key
-RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
+RETURNING id, hash_id, table_id, partition_key, sort_key_ids, new_file_at;
         "#,
         )
         .bind(key) // $1
@@ -879,8 +888,13 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
 
     async fn get_by_id(&mut self, partition_id: PartitionId) -> Result<Option<Partition>> {
         let rec = sqlx::query_as::<_, PartitionPod>(
+            //             r#"
+            // SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+            // FROM partition
+            // WHERE id = $1;
+            //             "#,
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key_ids, new_file_at
 FROM partition
 WHERE id = $1;
             "#,
@@ -903,8 +917,13 @@ WHERE id = $1;
         let ids: Vec<_> = partition_ids.iter().map(|p| p.get()).collect();
 
         sqlx::query_as::<_, PartitionPod>(
+            //             r#"
+            // SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+            // FROM partition
+            // WHERE id IN (SELECT value FROM json_each($1));
+            //             "#,
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key_ids, new_file_at
 FROM partition
 WHERE id IN (SELECT value FROM json_each($1));
             "#,
@@ -921,8 +940,13 @@ WHERE id IN (SELECT value FROM json_each($1));
         partition_hash_id: &PartitionHashId,
     ) -> Result<Option<Partition>> {
         let rec = sqlx::query_as::<_, PartitionPod>(
+            //             r#"
+            // SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+            // FROM partition
+            // WHERE hash_id = $1;
+            //             "#,
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key_ids, new_file_at
 FROM partition
 WHERE hash_id = $1;
             "#,
@@ -959,8 +983,13 @@ WHERE hash_id = $1;
             .collect();
 
         sqlx::query_as::<_, PartitionPod>(
+            //             r#"
+            // SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+            // FROM partition
+            // WHERE hex(hash_id) IN (SELECT value FROM json_each($1));
+            //             "#,
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key_ids, new_file_at
 FROM partition
 WHERE hex(hash_id) IN (SELECT value FROM json_each($1));
             "#,
@@ -974,8 +1003,13 @@ WHERE hex(hash_id) IN (SELECT value FROM json_each($1));
 
     async fn list_by_table_id(&mut self, table_id: TableId) -> Result<Vec<Partition>> {
         Ok(sqlx::query_as::<_, PartitionPod>(
+            //             r#"
+            // SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+            // FROM partition
+            // WHERE table_id = $1;
+            //             "#,
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key_ids, new_file_at
 FROM partition
 WHERE table_id = $1;
             "#,
@@ -1010,20 +1044,21 @@ WHERE table_id = $1;
     async fn cas_sort_key(
         &mut self,
         partition_id: &TransitionPartitionId,
-        old_sort_key: Option<Vec<String>>,
+        // old_sort_key: Option<Vec<String>>,
         old_sort_key_ids: Option<SortedColumnSet>,
-        new_sort_key: &[&str],
+        // new_sort_key: &[&str],
         new_sort_key_ids: &SortedColumnSet,
-    ) -> Result<Partition, CasFailure<(Vec<String>, Option<SortedColumnSet>)>> {
-        // These asserts are here to cacth bugs. They will be removed when we remove the sort_key
-        // field from the Partition
-        assert_eq!(
-            old_sort_key.as_ref().map(|v| v.len()),
-            old_sort_key_ids.as_ref().map(|v| v.len())
-        );
-        assert_eq!(new_sort_key.len(), new_sort_key_ids.len());
+        // ) -> Result<Partition, CasFailure<(Vec<String>, Option<SortedColumnSet>)>> {
+    ) -> Result<Partition, CasFailure<Option<SortedColumnSet>>> {
+        // // These asserts are here to cacth bugs. They will be removed when we remove the sort_key
+        // // field from the Partition
+        // assert_eq!(
+        //     old_sort_key.as_ref().map(|v| v.len()),
+        //     old_sort_key_ids.as_ref().map(|v| v.len())
+        // );
+        // assert_eq!(new_sort_key.len(), new_sort_key_ids.len());
 
-        let old_sort_key = old_sort_key.unwrap_or_default();
+        // let old_sort_key = old_sort_key.unwrap_or_default();
         let raw_old_sort_key_ids: Vec<_> = old_sort_key_ids
             .unwrap_or_default()
             .iter()
@@ -1034,31 +1069,53 @@ WHERE table_id = $1;
         // This `match` will go away when all partitions have hash IDs in the database.
         let query = match partition_id {
             TransitionPartitionId::Deterministic(hash_id) => sqlx::query_as::<_, PartitionPod>(
+                //                 r#"
+                // UPDATE partition
+                // SET sort_key = $1, sort_key_ids = $4
+                // WHERE hash_id = $2 AND sort_key = $3 AND sort_key_ids = $5
+                // RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
+                //         "#,
+                //             )
+                //             .bind(Json(new_sort_key)) // $1
+                //             .bind(hash_id) // $2
+                //             .bind(Json(&old_sort_key)) // $3
+                //             .bind(Json(&raw_new_sort_key_ids)) // $4
+                //             .bind(Json(&raw_old_sort_key_ids)), // $5
+                //             TransitionPartitionId::Deprecated(id) => sqlx::query_as::<_, PartitionPod>(
+                //                 r#"
+                // UPDATE partition
+                // SET sort_key = $1, sort_key_ids = $4
+                // WHERE id = $2 AND sort_key = $3 AND sort_key_ids = $5
+                // RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
+                //         "#,
+                //             )
+                //             .bind(Json(new_sort_key)) // $1
+                //             .bind(id) // $2
+                //             .bind(Json(&old_sort_key)) // $3
+                //             .bind(Json(&raw_new_sort_key_ids)) // $4
+                //             .bind(Json(&raw_old_sort_key_ids)), // $5
+                //         };
                 r#"
-UPDATE partition
-SET sort_key = $1, sort_key_ids = $4
-WHERE hash_id = $2 AND sort_key = $3 AND sort_key_ids = $5
-RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
-        "#,
+    UPDATE partition
+    SET sort_key_ids = $1
+    WHERE hash_id = $2 AND sort_key_ids = $3
+    RETURNING id, hash_id, table_id, partition_key, sort_key_ids, new_file_at;
+            "#,
             )
-            .bind(Json(new_sort_key)) // $1
+            .bind(Json(&raw_new_sort_key_ids)) // $1
             .bind(hash_id) // $2
-            .bind(Json(&old_sort_key)) // $3
-            .bind(Json(&raw_new_sort_key_ids)) // $4
-            .bind(Json(&raw_old_sort_key_ids)), // $5
+            .bind(Json(&raw_old_sort_key_ids)), // $3
             TransitionPartitionId::Deprecated(id) => sqlx::query_as::<_, PartitionPod>(
                 r#"
-UPDATE partition
-SET sort_key = $1, sort_key_ids = $4
-WHERE id = $2 AND sort_key = $3 AND sort_key_ids = $5
-RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
-        "#,
+    UPDATE partition
+    SET sort_key_ids = $1
+    WHERE id = $2 AND sort_key_ids = $3
+    RETURNING id, hash_id, table_id, partition_key, sort_key_ids, new_file_at;
+            "#,
             )
-            .bind(Json(new_sort_key)) // $1
+            .bind(Json(&raw_new_sort_key_ids)) // $1
             .bind(id) // $2
-            .bind(Json(&old_sort_key)) // $3
-            .bind(Json(&raw_new_sort_key_ids)) // $4
-            .bind(Json(&raw_old_sort_key_ids)), // $5
+            .bind(Json(&raw_old_sort_key_ids)), // $3
         };
 
         let res = query.fetch_one(self.inner.get_mut()).await;
@@ -1083,18 +1140,19 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
                     .ok_or(CasFailure::QueryError(Error::PartitionNotFound {
                         id: partition_id.clone(),
                     }))?;
-                return Err(CasFailure::ValueMismatch((
-                    partition.sort_key,
-                    partition.sort_key_ids,
-                )));
+                // return Err(CasFailure::ValueMismatch((
+                //     partition.sort_key,
+                //     partition.sort_key_ids,
+                // )));
+                return Err(CasFailure::ValueMismatch(partition.sort_key_ids));
             }
             Err(e) => return Err(CasFailure::QueryError(Error::SqlxError { source: e })),
         };
 
         debug!(
             ?partition_id,
-            ?old_sort_key,
-            ?new_sort_key,
+            // ?old_sort_key,
+            // ?new_sort_key,
             "partition sort key cas successful"
         );
 
@@ -1190,8 +1248,14 @@ RETURNING *
 
     async fn most_recent_n(&mut self, n: usize) -> Result<Vec<Partition>> {
         Ok(sqlx::query_as::<_, PartitionPod>(
+            //             r#"
+            // SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+            // FROM partition
+            // ORDER BY id DESC
+            // LIMIT $1;
+            //         "#,
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key_ids, new_file_at
 FROM partition
 ORDER BY id DESC
 LIMIT $1;
@@ -1233,8 +1297,14 @@ LIMIT $1;
 
     async fn list_old_style(&mut self) -> Result<Vec<Partition>> {
         Ok(sqlx::query_as::<_, PartitionPod>(
+            //             r#"
+            // SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+            // FROM partition
+            // WHERE hash_id IS NULL
+            // ORDER BY id DESC;
+            //         "#,
             r#"
-SELECT id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at
+SELECT id, hash_id, table_id, partition_key, sort_key_ids, new_file_at
 FROM partition
 WHERE hash_id IS NULL
 ORDER BY id DESC;
@@ -1820,14 +1890,23 @@ mod tests {
         // Create a partition record in the database that has `NULL` for its `hash_id`
         // value, which is what records existing before the migration adding that column will have.
         sqlx::query(
+            //             r#"
+            // INSERT INTO partition
+            //     (partition_key, shard_id, table_id, sort_key, sort_key_ids)
+            // VALUES
+            //     ($1, $2, $3, '[]', '[]')
+            // ON CONFLICT (table_id, partition_key)
+            // DO UPDATE SET partition_key = partition.partition_key
+            // RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
+            //         "#,
             r#"
 INSERT INTO partition
-    (partition_key, shard_id, table_id, sort_key, sort_key_ids)
+    (partition_key, shard_id, table_id, sort_key_ids)
 VALUES
-    ($1, $2, $3, '[]', '[]')
+    ($1, $2, $3, '[]')
 ON CONFLICT (table_id, partition_key)
 DO UPDATE SET partition_key = partition.partition_key
-RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
+RETURNING id, hash_id, table_id, partition_key, sort_key_ids, new_file_at;
         "#,
         )
         .bind(&key) // $1

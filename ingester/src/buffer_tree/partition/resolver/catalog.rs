@@ -5,7 +5,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use backoff::{Backoff, BackoffConfig};
-use data_types::{Column, NamespaceId, Partition, PartitionKey, TableId};
+use data_types::{
+    build_sort_key_from_sort_key_ids_and_columns, Column, NamespaceId, Partition, PartitionKey,
+    TableId,
+};
 use iox_catalog::interface::Catalog;
 use observability_deps::tracing::debug;
 use parking_lot::Mutex;
@@ -14,9 +17,7 @@ use super::r#trait::PartitionProvider;
 use crate::{
     buffer_tree::{
         namespace::NamespaceName,
-        partition::{
-            resolver::build_sort_key_from_sort_key_ids_and_columns, PartitionData, SortKeyState,
-        },
+        partition::{PartitionData, SortKeyState},
         table::metadata::TableMetadata,
     },
     deferred_load::DeferredLoad,
@@ -90,7 +91,7 @@ impl PartitionProvider for CatalogPartitionResolver {
             .await
             .expect("retry forever");
 
-        let p_sort_key = p.sort_key();
+        // let p_sort_key = p.sort_key();
         let p_sort_key_ids = p.sort_key_ids_none_if_empty();
 
         // fetch columns of the table to build sort_key from sort_key_ids
@@ -106,7 +107,7 @@ impl PartitionProvider for CatalogPartitionResolver {
             build_sort_key_from_sort_key_ids_and_columns(&p_sort_key_ids, columns.into_iter());
 
         // This is here to catch bugs and will be removed once the sort_key is removed from the partition
-        assert_eq!(sort_key, p_sort_key);
+        // assert_eq!(sort_key, p_sort_key);
 
         Arc::new(Mutex::new(PartitionData::new(
             p.transition_partition_id(),

@@ -388,10 +388,10 @@ mod tests {
             .partitions()
             .cas_sort_key(
                 &partition_id,
-                None,
+                // None,
                 None,
                 // must use column names that exist in the partition data
-                &["region"],
+                // &["region"],
                 // column id of region
                 &SortedColumnSet::from([region_column_id.get()]),
             )

@@ -1,8 +1,7 @@
 use std::{fmt::Display, sync::Arc};
 
 use async_trait::async_trait;
-use data_types::PartitionId;
-use schema::sort::SortKey;
+use data_types::{build_sort_key_from_sort_key_ids_and_columns, PartitionId};
 
 use crate::{
     components::{
@@ -115,35 +114,38 @@ where
         let sort_key_ids = partition.sort_key_ids_none_if_empty();
         // sort_key of the partition. This will be removed but until then, use it to validate the
         // sort_key computed by mapping sort_key_ids to column names
-        let p_sort_key = partition.sort_key();
+        // let p_sort_key = partition.sort_key();
 
         // convert column ids to column names
-        let sort_key = sort_key_ids.as_ref().map(|ids| {
-            let names = ids
-                .iter()
-                .map(|id| {
-                    columns
-                        .iter()
-                        .find(|c| c.id == *id)
-                        .map(|c| c.name.clone())
-                        .ok_or_else::<DynError, _>(|| {
-                            format!(
-                                "Cannot find column with id {} for table {}",
-                                id.get(),
-                                table.name
-                            )
-                            .into()
-                        })
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .expect("Cannot find column names for sort key ids");
+        let sort_key =
+            build_sort_key_from_sort_key_ids_and_columns(&sort_key_ids, columns.into_iter());
 
-            SortKey::from_columns(names.iter().map(|s| &**s))
-        });
+        // let sort_key = sort_key_ids.as_ref().map(|ids| {
+        //     let names = ids
+        //         .iter()
+        //         .map(|id| {
+        //             columns
+        //                 .iter()
+        //                 .find(|c| c.id == *id)
+        //                 .map(|c| c.name.clone())
+        //                 .ok_or_else::<DynError, _>(|| {
+        //                     format!(
+        //                         "Cannot find column with id {} for table {}",
+        //                         id.get(),
+        //                         table.name
+        //                     )
+        //                     .into()
+        //                 })
+        //         })
+        //         .collect::<Result<Vec<_>, _>>()
+        //         .expect("Cannot find column names for sort key ids");
+
+        //     SortKey::from_columns(names.iter().map(|s| &**s))
+        // });
 
         // This is here to catch bugs if any while mapping sort_key_ids to column names
         // This wil be removed once sort_key is removed from partition
-        assert_eq!(sort_key, p_sort_key);
+        // assert_eq!(sort_key, p_sort_key);
 
         Ok(Arc::new(PartitionInfo {
             partition_id,

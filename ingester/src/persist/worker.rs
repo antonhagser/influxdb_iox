@@ -130,7 +130,8 @@ pub(super) async fn run_task<O>(
         let parquet_table_data = loop {
             match compact_and_upload(&mut ctx, &worker_state).await {
                 Ok(v) => break v,
-                Err(PersistError::ConcurrentSortKeyUpdate(_sort_key, _sort_key_ids)) => continue,
+                // Err(PersistError::ConcurrentSortKeyUpdate(_sort_key, _sort_key_ids)) => continue,
+                Err(PersistError::ConcurrentSortKeyUpdate(_sort_key_ids)) => continue,
             };
         };
 
@@ -424,21 +425,22 @@ where
                     .partitions()
                     .cas_sort_key(
                         ctx.partition_id(),
-                        old_sort_key.clone(),
+                        // old_sort_key.clone(),
                         old_sort_key_ids.clone(),
-                        &new_sort_key_str,
+                        // &new_sort_key_str,
                         &new_sort_key_colids,
                     )
                     .await
                 {
                     Ok(_) => ControlFlow::Break(Ok(new_sort_key_colids)),
                     Err(CasFailure::QueryError(e)) => ControlFlow::Continue(e),
-                    Err(CasFailure::ValueMismatch((observed_sort_key, observed_sort_key_ids)))
+                    // Err(CasFailure::ValueMismatch((observed_sort_key, observed_sort_key_ids)))
+                    Err(CasFailure::ValueMismatch(observed_sort_key_ids))
                         if observed_sort_key_ids.as_ref() == Some(&new_sort_key_colids) =>
                     {
-                        // Invariant: if the column name sort IDs match, the
-                        // sort key column strings must also match.
-                        assert_eq!(observed_sort_key, new_sort_key_str);
+                        // // Invariant: if the column name sort IDs match, the
+                        // // sort key column strings must also match.
+                        // assert_eq!(observed_sort_key, new_sort_key_str);
 
                         // A CAS failure occurred because of a concurrent
                         // sort key update, however the new catalog sort key
@@ -457,7 +459,7 @@ where
                             partition_key = %ctx.partition_key(),
                             ?old_sort_key,
                             ?old_sort_key_ids,
-                            ?observed_sort_key,
+                            // ?observed_sort_key,
                             ?observed_sort_key_ids,
                             update_sort_key=?new_sort_key_str,
                             update_sort_key_ids=?new_sort_key_colids,
@@ -465,7 +467,8 @@ where
                         );
                         ControlFlow::Break(Ok(new_sort_key_colids))
                     }
-                    Err(CasFailure::ValueMismatch((observed_sort_key, observed_sort_key_ids))) => {
+                    // Err(CasFailure::ValueMismatch((observed_sort_key, observed_sort_key_ids))) => {
+                    Err(CasFailure::ValueMismatch(observed_sort_key_ids)) => {
                         // Another ingester concurrently updated the sort
                         // key.
                         //
@@ -486,7 +489,7 @@ where
                             partition_key = %ctx.partition_key(),
                             ?old_sort_key,
                             ?old_sort_key_ids,
-                            ?observed_sort_key,
+                            // ?observed_sort_key,
                             ?observed_sort_key_ids,
                             update_sort_key=?new_sort_key_str,
                             update_sort_key_ids=?new_sort_key_colids,
@@ -495,7 +498,7 @@ where
                         // Stop the retry loop with an error containing the
                         // newly observed sort key.
                         ControlFlow::Break(Err(PersistError::ConcurrentSortKeyUpdate(
-                            SortKey::from_columns(observed_sort_key),
+                            // SortKey::from_columns(observed_sort_key),
                             observed_sort_key_ids,
                         )))
                     }
@@ -526,7 +529,8 @@ where
                 "adjusted partition sort key"
             );
         }
-        Err(PersistError::ConcurrentSortKeyUpdate(new_sort_key, new_sort_key_ids)) => {
+        // Err(PersistError::ConcurrentSortKeyUpdate(new_sort_key, new_sort_key_ids)) => {
+        Err(PersistError::ConcurrentSortKeyUpdate(new_sort_key_ids)) => {
             // Update the cached sort key in the Context (which pushes it
             // through into the PartitionData also) to reflect the newly
             // observed value for the next attempt.
@@ -535,10 +539,13 @@ where
             ctx.set_partition_sort_key(new_sort_key.clone(), new_sort_key_ids.clone())
                 .await;
 
-            return Err(PersistError::ConcurrentSortKeyUpdate(
-                new_sort_key,
-                Some(new_sort_key_ids),
-            ));
+            // return Err(PersistError::ConcurrentSortKeyUpdate(
+            //     new_sort_key,
+            //     Some(new_sort_key_ids),
+            // ));
+            return Err(PersistError::ConcurrentSortKeyUpdate(Some(
+                new_sort_key_ids,
+            )));
         }
     }
 

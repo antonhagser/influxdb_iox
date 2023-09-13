@@ -1040,9 +1040,9 @@ mod tests {
             .partitions()
             .cas_sort_key(
                 &partition.transition_partition_id(),
+                // None,
                 None,
-                None,
-                &["terrific"],
+                // &["terrific"],
                 &SortedColumnSet::from([1]),
             )
             .await

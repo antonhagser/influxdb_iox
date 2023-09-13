@@ -192,7 +192,7 @@ fn to_partition(p: data_types::Partition) -> Partition {
         identifier: Some(identifier),
         key: p.partition_key.to_string(),
         table_id: p.table_id.get(),
-        array_sort_key: p.sort_key,
+        // array_sort_key: p.sort_key,
         sort_key_ids: Some(proto_sort_key_id),
     }
 }

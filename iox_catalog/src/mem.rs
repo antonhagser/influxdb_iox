@@ -661,21 +661,22 @@ impl PartitionRepo for MemTxn {
     async fn cas_sort_key(
         &mut self,
         partition_id: &TransitionPartitionId,
-        old_sort_key: Option<Vec<String>>,
+        // old_sort_key: Option<Vec<String>>,
         old_sort_key_ids: Option<SortedColumnSet>,
-        new_sort_key: &[&str],
+        // new_sort_key: &[&str],
         new_sort_key_ids: &SortedColumnSet,
-    ) -> Result<Partition, CasFailure<(Vec<String>, Option<SortedColumnSet>)>> {
-        // These asserts are here to cacth bugs. They will be removed when we remove the sort_key
-        // field from the Partition
-        assert_eq!(
-            old_sort_key.as_ref().map(|v| v.len()),
-            old_sort_key_ids.as_ref().map(|v| v.len())
-        );
-        assert_eq!(new_sort_key.len(), new_sort_key_ids.len());
+        // ) -> Result<Partition, CasFailure<(Vec<String>, Option<SortedColumnSet>)>> {
+    ) -> Result<Partition, CasFailure<Option<SortedColumnSet>>> {
+        // // These asserts are here to cacth bugs. They will be removed when we remove the sort_key
+        // // field from the Partition
+        // assert_eq!(
+        //     old_sort_key.as_ref().map(|v| v.len()),
+        //     old_sort_key_ids.as_ref().map(|v| v.len())
+        // );
+        // assert_eq!(new_sort_key.len(), new_sort_key_ids.len());
 
         let stage = self.stage();
-        let old_sort_key = old_sort_key.unwrap_or_default();
+        // let old_sort_key = old_sort_key.unwrap_or_default();
         let old_sort_key_ids = old_sort_key_ids.unwrap_or_default();
 
         match stage.partitions.iter_mut().find(|p| match partition_id {
@@ -685,17 +686,18 @@ impl PartitionRepo for MemTxn {
             TransitionPartitionId::Deprecated(id) => p.id == *id,
         }) {
             Some(p) if p.sort_key_ids == Some(old_sort_key_ids) => {
-                // This is here to catch bugs. It will be removed when we remove the sort_key
-                assert_eq!(p.sort_key, old_sort_key);
-                p.sort_key = new_sort_key.iter().map(|s| s.to_string()).collect();
+                // // // This is here to catch bugs. It will be removed when we remove the sort_key
+                // // assert_eq!(p.sort_key, old_sort_key);
+                // // p.sort_key = new_sort_key.iter().map(|s| s.to_string()).collect();
                 p.sort_key_ids = Some(new_sort_key_ids.clone());
                 Ok(p.clone())
             }
             Some(p) => {
-                return Err(CasFailure::ValueMismatch((
-                    p.sort_key.clone(),
-                    p.sort_key_ids.clone(),
-                )));
+                // return Err(CasFailure::ValueMismatch((
+                //     p.sort_key.clone(),
+                //     p.sort_key_ids.clone(),
+                // )));
+                return Err(CasFailure::ValueMismatch(p.sort_key_ids.clone()));
             }
             None => Err(CasFailure::QueryError(Error::PartitionNotFound {
                 id: partition_id.clone(),

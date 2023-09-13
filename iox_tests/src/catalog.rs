@@ -5,6 +5,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use data_types::{
+    build_sort_key_from_sort_key_ids_and_columns,
     partition_template::TablePartitionTemplateOverride, Column, ColumnSet, ColumnType,
     ColumnsByName, CompactionLevel, Namespace, NamespaceName, NamespaceSchema, ParquetFile,
     ParquetFileParams, Partition, PartitionId, SortedColumnSet, Table, TableId, TableSchema,
@@ -317,7 +318,7 @@ impl TestTable {
     pub async fn create_partition_with_sort_key(
         self: &Arc<Self>,
         key: &str,
-        sort_key: &[&str],
+        _sort_key: &[&str],
         sort_key_ids: &[i64],
     ) -> Arc<TestPartition> {
         let mut repos = self.catalog.catalog.repositories().await;
@@ -332,9 +333,9 @@ impl TestTable {
             .partitions()
             .cas_sort_key(
                 &TransitionPartitionId::Deprecated(partition.id),
+                // None,
                 None,
-                None,
-                sort_key,
+                // sort_key,
                 &SortedColumnSet::from(sort_key_ids.iter().cloned()),
             )
             .await
@@ -448,7 +449,7 @@ impl TestPartition {
     /// Update sort key.
     pub async fn update_sort_key(
         self: &Arc<Self>,
-        sort_key: SortKey,
+        _sort_key: SortKey,
         sort_key_ids: &SortedColumnSet,
     ) -> Arc<Self> {
         let partition = partition_lookup(
@@ -459,7 +460,7 @@ impl TestPartition {
         .unwrap()
         .unwrap();
 
-        let old_sort_key = partition.sort_key;
+        // let old_sort_key = partition.sort_key;
         let old_sort_key_ids = partition.sort_key_ids;
 
         let partition = self
@@ -470,9 +471,9 @@ impl TestPartition {
             .partitions()
             .cas_sort_key(
                 &self.partition.transition_partition_id(),
-                Some(old_sort_key),
+                // Some(old_sort_key),
                 old_sort_key_ids,
-                &sort_key.to_columns().collect::<Vec<_>>(),
+                // &sort_key.to_columns().collect::<Vec<_>>(),
                 sort_key_ids,
             )
             .await
@@ -793,20 +794,29 @@ async fn update_catalog_sort_key_if_needed<R>(
     let partition = partition_lookup(repos, id).await.unwrap().unwrap();
 
     // fecth column ids from catalog
-    let columns = get_table_columns_by_id(partition.table_id, repos)
+    // let columns = get_table_columns_by_id(partition.table_id, repos)
+    //     .await
+    //     .unwrap();
+    let columns = repos
+        .columns()
+        .list_by_table_id(partition.table_id)
         .await
         .unwrap();
+    let columns_by_name = ColumnsByName::new(columns.clone());
 
     // Similarly to what the ingester does, if there's an existing sort key in the catalog, add new
     // columns onto the end
 
-    match (partition.sort_key(), partition.sort_key_ids_none_if_empty()) {
-        (Some(catalog_sort_key), Some(catalog_sort_key_ids)) => {
+    // match (partition.sort_key(), partition.sort_key_ids_none_if_empty()) {
+    match partition.sort_key_ids_none_if_empty() {
+        // (Some(catalog_sort_key), Some(catalog_sort_key_ids)) => {
+        Some(catalog_sort_key_ids) => {
+            let catalog_sort_key = build_sort_key_from_sort_key_ids_and_columns(&Some(catalog_sort_key_ids.clone()), columns.into_iter()).unwrap();
             let new_sort_key = sort_key.to_columns().collect::<Vec<_>>();
             let (_metadata, update) = adjust_sort_key_columns(&catalog_sort_key, &new_sort_key);
             if let Some(new_sort_key) = update {
                 let new_sort_key = new_sort_key.to_columns().collect::<Vec<_>>();
-                let new_sort_key_ids = columns.ids_for_names(&new_sort_key);
+                let new_sort_key_ids = columns_by_name.ids_for_names(&new_sort_key);
 
                 debug!(
                     "Updating (sort_key, sort_key_ids) from ({:?}, {:?}) to ({:?}, {:?})",
@@ -820,35 +830,37 @@ async fn update_catalog_sort_key_if_needed<R>(
                     .partitions()
                     .cas_sort_key(
                         id,
-                        Some(
-                            catalog_sort_key
-                                .to_columns()
-                                .map(ToString::to_string)
-                                .collect::<Vec<_>>(),
-                        ),
+                        // Some(
+                        //     catalog_sort_key
+                        //         .to_columns()
+                        //         .map(ToString::to_string)
+                        //         .collect::<Vec<_>>(),
+                        // ),
                         partition.sort_key_ids,
-                        &new_sort_key,
+                        // &new_sort_key,
                         &new_sort_key_ids,
                     )
                     .await
                     .unwrap();
             }
         }
-        (None, None) => {
+        // (None, None) => {
+        None => {
             let new_columns = sort_key.to_columns().collect::<Vec<_>>();
             debug!("Updating sort key from None to {:?}", &new_columns);
-            let column_ids = columns.ids_for_names(&new_columns);
+            let column_ids = columns_by_name.ids_for_names(&new_columns);
             repos
                 .partitions()
-                .cas_sort_key(id, None, None, &new_columns, &column_ids)
+                // .cas_sort_key(id, None, None, &new_columns, &column_ids)
+                .cas_sort_key(id, None, &column_ids)
                 .await
                 .unwrap();
         }
-        _ => panic!(
-            "sort_key {:?} and sort_key_ids {:?} should be both None or both Some",
-            partition.sort_key(),
-            partition.sort_key_ids_none_if_empty()
-        ),
+        // _ => panic!(
+        //     "sort_key {:?} and sort_key_ids {:?} should be both None or both Some",
+        //     partition.sort_key(),
+        //     partition.sort_key_ids_none_if_empty()
+        // ),
     }
 }
 

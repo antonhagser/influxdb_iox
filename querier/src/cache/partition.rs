@@ -258,13 +258,13 @@ impl CachedPartition {
             Arc::new(PartitionSortKey::new(sort_key_ids, &table.column_id_map))
         });
 
-        // This is here to catch bugs if any while mapping sort_key_ids to column names
-        // This wil be removed once sort_key is removed from partition
-        let p_sort_key = partition.sort_key();
-        assert_eq!(
-            sort_key.as_ref().map(|sk| sk.sort_key.as_ref()),
-            p_sort_key.as_ref()
-        );
+        // // This is here to catch bugs if any while mapping sort_key_ids to column names
+        // // This wil be removed once sort_key is removed from partition
+        // let p_sort_key = partition.sort_key();
+        // assert_eq!(
+        //     sort_key.as_ref().map(|sk| sk.sort_key.as_ref()),
+        //     p_sort_key.as_ref()
+        // );
 
         let mut column_ranges =
             build_column_values(&table.partition_template, partition.partition_key.inner())

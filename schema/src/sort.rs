@@ -88,6 +88,7 @@ impl SortKey {
         builder.build()
     }
 
+    /// Return column names of the sort key
     pub fn to_columns(&self) -> impl Iterator<Item = &str> {
         self.columns.keys().map(|k| k.as_ref())
     }
