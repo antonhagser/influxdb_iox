@@ -169,7 +169,7 @@ where
         _span_ctx: Option<SpanContext>,
     ) -> Result<Self::WriteOutput, Self::WriteError> {
         let namespace_id = namespace_schema.id;
-        validate_schema_limits(&batches, &namespace_schema).map_err(|e| {
+        validate_schema_limits_of_batches(&batches, &namespace_schema).map_err(|e| {
             match &e {
                 CachedServiceProtectionLimit::Column {
                     table_name,
@@ -348,7 +348,7 @@ pub enum CachedServiceProtectionLimit {
 /// Evaluate the number of columns/tables that would result if `batches` was
 /// applied to `schema`, and ensure the column/table count does not exceed the
 /// maximum permitted amount cached in the [`NamespaceSchema`].
-fn validate_schema_limits(
+fn validate_schema_limits_of_batches(
     batches: &HashMap<String, MutableBatch>,
     schema: &NamespaceSchema,
 ) -> Result<(), CachedServiceProtectionLimit> {
@@ -461,11 +461,11 @@ mod tests {
             let schema = namespace.schema().await;
             // Columns under the limit is ok
             let batches = lp_to_writes("nonexistent val=42i 123456");
-            assert!(validate_schema_limits(&batches, &schema).is_ok());
+            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
             // Columns over the limit is an error
             let batches = lp_to_writes("nonexistent,tag1=A,tag2=B val=42i 123456");
             assert_matches!(
-                validate_schema_limits(&batches, &schema),
+                validate_schema_limits_of_batches(&batches, &schema),
                 Err(CachedServiceProtectionLimit::Column {
                     table_name: _,
                     existing_column_count: 0,
@@ -481,11 +481,11 @@ mod tests {
             let schema = namespace.schema().await;
             // Columns under the limit is ok
             let batches = lp_to_writes("no_columns_in_schema val=42i 123456");
-            assert!(validate_schema_limits(&batches, &schema).is_ok());
+            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
             // Columns over the limit is an error
             let batches = lp_to_writes("no_columns_in_schema,tag1=A,tag2=B val=42i 123456");
             assert_matches!(
-                validate_schema_limits(&batches, &schema),
+                validate_schema_limits_of_batches(&batches, &schema),
                 Err(CachedServiceProtectionLimit::Column {
                     table_name: _,
                     existing_column_count: 0,
@@ -502,14 +502,14 @@ mod tests {
             let schema = namespace.schema().await;
             // Columns already existing is ok
             let batches = lp_to_writes("i_got_columns i_got_music=42i 123456");
-            assert!(validate_schema_limits(&batches, &schema).is_ok());
+            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
             // Adding columns under the limit is ok
             let batches = lp_to_writes("i_got_columns,tag1=A i_got_music=42i 123456");
-            assert!(validate_schema_limits(&batches, &schema).is_ok());
+            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
             // Adding columns over the limit is an error
             let batches = lp_to_writes("i_got_columns,tag1=A,tag2=B i_got_music=42i 123456");
             assert_matches!(
-                validate_schema_limits(&batches, &schema),
+                validate_schema_limits_of_batches(&batches, &schema),
                 Err(CachedServiceProtectionLimit::Column {
                     table_name: _,
                     existing_column_count: 1,
@@ -530,11 +530,11 @@ mod tests {
             let schema = namespace.schema().await;
             // Columns already existing is allowed
             let batches = lp_to_writes("bananas greatness=42i 123456");
-            assert!(validate_schema_limits(&batches, &schema).is_ok());
+            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
             // Adding columns over the limit is an error
             let batches = lp_to_writes("bananas i_got_music=42i 123456");
             assert_matches!(
-                validate_schema_limits(&batches, &schema),
+                validate_schema_limits_of_batches(&batches, &schema),
                 Err(CachedServiceProtectionLimit::Column {
                     table_name: _,
                     existing_column_count: 3,
@@ -610,11 +610,11 @@ mod tests {
 
             // Columns already existing is allowed
             let batches = lp_to_writes("dragonfruit val=42i 123456");
-            assert!(validate_schema_limits(&batches, &schema).is_ok());
+            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
             // Adding more columns over the limit is an error
             let batches = lp_to_writes("dragonfruit i_got_music=42i 123456");
             assert_matches!(
-                validate_schema_limits(&batches, &schema),
+                validate_schema_limits_of_batches(&batches, &schema),
                 Err(CachedServiceProtectionLimit::Column {
                     table_name: _,
                     existing_column_count: 4,
@@ -635,14 +635,14 @@ mod tests {
         {
             let schema = namespace.schema().await;
             let batches = lp_to_writes("nonexistent val=42i 123456");
-            assert!(validate_schema_limits(&batches, &schema).is_ok());
+            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
         }
 
         // Creating two tables (the limit) is OK
         {
             let schema = namespace.schema().await;
             let batches = lp_to_writes("nonexistent val=42i 123456\nbananas val=2 42");
-            assert!(validate_schema_limits(&batches, &schema).is_ok());
+            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
         }
 
         // Creating three tables (above the limit) fails
@@ -651,7 +651,7 @@ mod tests {
             let batches =
                 lp_to_writes("nonexistent val=42i 123456\nbananas val=2 42\nplatanos val=2 42");
             assert_matches!(
-                validate_schema_limits(&batches, &schema),
+                validate_schema_limits_of_batches(&batches, &schema),
                 Err(CachedServiceProtectionLimit::Table {
                     existing_table_count: 0,
                     merged_table_count: 3,
@@ -667,7 +667,7 @@ mod tests {
         {
             let schema = namespace.schema().await;
             let batches = lp_to_writes("bananas val=2 42\nplatanos val=2 42");
-            assert!(validate_schema_limits(&batches, &schema).is_ok());
+            assert!(validate_schema_limits_of_batches(&batches, &schema).is_ok());
         }
 
         // Adding a third table is rejected OK
@@ -675,7 +675,7 @@ mod tests {
             let schema = namespace.schema().await;
             let batches = lp_to_writes("bananas val=2 42\nplatanos val=2 42\nnope v=2 42");
             assert_matches!(
-                validate_schema_limits(&batches, &schema),
+                validate_schema_limits_of_batches(&batches, &schema),
                 Err(CachedServiceProtectionLimit::Table {
                     existing_table_count: 1,
                     merged_table_count: 3,
@@ -701,7 +701,7 @@ mod tests {
             assert_eq!(schema.max_tables.get(), 1);
 
             let batches = lp_to_writes("bananas val=2 42\nplatanos val=2 42");
-            assert_matches!(validate_schema_limits(&batches, &schema), Ok(()));
+            assert_matches!(validate_schema_limits_of_batches(&batches, &schema), Ok(()));
         }
 
         // A new table is always rejected.
@@ -709,7 +709,7 @@ mod tests {
             let schema = namespace.schema().await;
             let batches = lp_to_writes("bananas val=2 42\nplatanos val=2 42\nnope v=1 42");
             assert_matches!(
-                validate_schema_limits(&batches, &schema),
+                validate_schema_limits_of_batches(&batches, &schema),
                 Err(CachedServiceProtectionLimit::Table {
                     existing_table_count: 2,
                     merged_table_count: 3,
@@ -721,7 +721,7 @@ mod tests {
             let schema = namespace.schema().await;
             let batches = lp_to_writes("bananas val=2 42\nnope v=1 42");
             assert_matches!(
-                validate_schema_limits(&batches, &schema),
+                validate_schema_limits_of_batches(&batches, &schema),
                 Err(CachedServiceProtectionLimit::Table {
                     existing_table_count: 2,
                     merged_table_count: 3,
@@ -733,7 +733,7 @@ mod tests {
             let schema = namespace.schema().await;
             let batches = lp_to_writes("nope v=1 42");
             assert_matches!(
-                validate_schema_limits(&batches, &schema),
+                validate_schema_limits_of_batches(&batches, &schema),
                 Err(CachedServiceProtectionLimit::Table {
                     existing_table_count: 2,
                     merged_table_count: 3,
