@@ -17,7 +17,7 @@ use crate::{
         partition::{
             resolver::build_sort_key_from_sort_key_ids_and_columns, PartitionData, SortKeyState,
         },
-        table::TableMetadata,
+        table::metadata::TableMetadata,
     },
     deferred_load::DeferredLoad,
 };
@@ -137,7 +137,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::buffer_tree::table::TableName;
+    use crate::buffer_tree::table::metadata::TableName;
 
     const TABLE_NAME: &str = "bananas";
     const NAMESPACE_NAME: &str = "ns-bananas";
