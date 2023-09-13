@@ -135,21 +135,8 @@ impl<C> SchemaValidator<C> {
             schema_conflict,
         }
     }
-}
 
-#[async_trait]
-impl<C> DmlHandler for SchemaValidator<C>
-where
-    C: NamespaceCache<ReadError = iox_catalog::interface::Error>, // The handler expects the cache to read from the catalog if necessary.
-{
-    type WriteError = SchemaError;
-
-    // Accepts a map of TableName -> MutableBatch
-    type WriteInput = HashMap<String, MutableBatch>;
-    // And returns a map of TableId -> (TableName, TablePartitionTemplate, MutableBatch)
-    type WriteOutput = HashMap<TableId, (String, TablePartitionTemplateOverride, MutableBatch)>;
-
-    /// Validate the schema of all the writes in `batches`.
+    /// Validate the schema changes specified.
     ///
     /// # Errors
     ///
@@ -161,15 +148,15 @@ where
     ///
     /// A request that fails validation on one or more tables fails the request
     /// as a whole - calling this method has "all or nothing" semantics.
-    async fn write(
-        &self,
-        namespace: &NamespaceName<'static>,
-        namespace_schema: Arc<NamespaceSchema>,
-        batches: Self::WriteInput,
-        _span_ctx: Option<SpanContext>,
-    ) -> Result<Self::WriteOutput, Self::WriteError> {
+    pub fn validate<'a>(
+        &'a self,
+        namespace: &'a NamespaceName<'static>,
+        namespace_schema: &'a NamespaceSchema,
+        column_names_by_table: impl Iterator<Item = (&'a str, BTreeSet<&'a str>)>,
+    ) -> Result<(), SchemaError> {
         let namespace_id = namespace_schema.id;
-        validate_schema_limits_of_batches(&batches, &namespace_schema).map_err(|e| {
+
+        validate_schema_limits(column_names_by_table, namespace_schema).map_err(|e| {
             match &e {
                 CachedServiceProtectionLimit::Column {
                     table_name,
@@ -206,6 +193,52 @@ where
             }
             SchemaError::ServiceLimit(Box::new(e))
         })?;
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl<C> DmlHandler for SchemaValidator<C>
+where
+    C: NamespaceCache<ReadError = iox_catalog::interface::Error>, // The handler expects the cache to read from the catalog if necessary.
+{
+    type WriteError = SchemaError;
+
+    // Accepts a map of TableName -> MutableBatch
+    type WriteInput = HashMap<String, MutableBatch>;
+    // And returns a map of TableId -> (TableName, TablePartitionTemplate, MutableBatch)
+    type WriteOutput = HashMap<TableId, (String, TablePartitionTemplateOverride, MutableBatch)>;
+
+    /// Validate the schema of all the writes in `batches`.
+    ///
+    /// # Errors
+    ///
+    /// If the schema validation fails due to a schema conflict in the request,
+    /// [`SchemaError::Conflict`] is returned.
+    ///
+    /// If the schema validation fails due to a service limit being reached,
+    /// [`SchemaError::ServiceLimit`] is returned.
+    ///
+    /// A request that fails validation on one or more tables fails the request
+    /// as a whole - calling this method has "all or nothing" semantics.
+    async fn write(
+        &self,
+        namespace: &NamespaceName<'static>,
+        namespace_schema: Arc<NamespaceSchema>,
+        batches: Self::WriteInput,
+        _span_ctx: Option<SpanContext>,
+    ) -> Result<Self::WriteOutput, Self::WriteError> {
+        let namespace_id = namespace_schema.id;
+
+        let column_names_by_table = batches.iter().map(|(table_name, batch)| {
+            (
+                table_name.as_str(),
+                batch.columns().map(|(key, _value)| key.as_str()).collect(),
+            )
+        });
+
+        self.validate(namespace, &namespace_schema, column_names_by_table)?;
 
         let mut repos = self.catalog.repositories().await;
 
@@ -345,24 +378,9 @@ pub enum CachedServiceProtectionLimit {
     },
 }
 
-/// Evaluate the number of columns/tables that would result if `batches` was
+/// Evaluate the number of columns/tables that would result if the schema changes were
 /// applied to `schema`, and ensure the column/table count does not exceed the
 /// maximum permitted amount cached in the [`NamespaceSchema`].
-fn validate_schema_limits_of_batches(
-    batches: &HashMap<String, MutableBatch>,
-    schema: &NamespaceSchema,
-) -> Result<(), CachedServiceProtectionLimit> {
-    validate_schema_limits(
-        batches.into_iter().map(|(table_name, batch)| {
-            (
-                table_name.as_str(),
-                batch.columns().map(|(key, _value)| key.as_str()).collect(),
-            )
-        }),
-        schema,
-    )
-}
-
 fn validate_schema_limits<'a>(
     column_names_by_table: impl Iterator<Item = (&'a str, BTreeSet<&'a str>)>,
     schema: &'a NamespaceSchema,
