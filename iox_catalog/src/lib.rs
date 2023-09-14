@@ -149,8 +149,23 @@ where
     // The (potentially updated) NamespaceSchema to return to the caller.
     let mut schema = Cow::Borrowed(schema);
 
+    // When a table is being created implicitly by this schema change, there's no
+    // possibility of a user-supplied partition template here, which is why there's
+    // a hardcoded `None`. If there is a namespace template, it must be valid because
+    // validity was checked during its creation, so that's why there's an `expect`.
+    let partition_template =
+        TablePartitionTemplateOverride::try_new(None, &schema.partition_template)
+            .expect("no table partition template; namespace partition template has been validated");
+
     for (table_name, batch) in tables {
-        validate_mutable_batch(batch, table_name, &mut schema, repos).await?;
+        validate_mutable_batch(
+            batch,
+            table_name,
+            partition_template.clone(),
+            &mut schema,
+            repos,
+        )
+        .await?;
     }
 
     match schema {
@@ -164,6 +179,7 @@ where
 async fn validate_mutable_batch<R>(
     mb: &MutableBatch,
     table_name: &str,
+    partition_template: TablePartitionTemplateOverride,
     schema: &mut Cow<'_, NamespaceSchema>,
     repos: &mut R,
 ) -> Result<(), TableScopedError>
@@ -174,6 +190,7 @@ where
         mb.columns()
             .map(|(name, col)| (name.as_str(), col.influx_type().into())),
         table_name,
+        partition_template,
         schema,
         repos,
     )
@@ -186,6 +203,7 @@ where
 pub async fn validate_and_insert_columns<R>(
     columns: impl Iterator<Item = (&str, ColumnType)> + Send,
     table_name: &str,
+    partition_template: TablePartitionTemplateOverride,
     schema: &mut Cow<'_, NamespaceSchema>,
     repos: &mut R,
 ) -> Result<(), TableScopedError>
@@ -203,16 +221,6 @@ where
             //
             // Attempt to load an existing table from the catalog or create a new table in the
             // catalog to populate the cache.
-
-            // This table is being created implicitly by this schema change, so there's no
-            // possibility of a user-supplied partition template here, which is why there's
-            // a hardcoded `None`. If there is a namespace template, it must be valid because
-            // validity was checked during its creation, so that's why there's an `expect`.
-            let partition_template =
-                TablePartitionTemplateOverride::try_new(None, &schema.partition_template).expect(
-                    "no table partition template; namespace partition template has been validated",
-                );
-
             let table = table_load_or_create(repos, schema.id, partition_template, table_name)
                 .await
                 .map_err(|e| TableScopedError(table_name.to_string(), e))?;

@@ -2,7 +2,9 @@
 //! cache of all observed schemas.
 
 use crate::namespace_cache::NamespaceCache;
-use data_types::{ColumnType, NamespaceName, NamespaceSchema};
+use data_types::{
+    partition_template::TablePartitionTemplateOverride, ColumnType, NamespaceName, NamespaceSchema,
+};
 use iox_catalog::interface::{Catalog, Error as CatalogError};
 use metric::U64Counter;
 use observability_deps::tracing::*;
@@ -233,6 +235,7 @@ where
         // This is a `BTreeMap` to get a consistent ordering and consistent failures if multiple
         // columns have problems.
         upsert_columns: BTreeMap<String, ColumnType>,
+        partition_template: TablePartitionTemplateOverride,
     ) -> Result<Option<NamespaceSchema>, SchemaError> {
         let column_names: BTreeSet<_> = upsert_columns.keys().map(|key| key.as_str()).collect();
 
@@ -251,6 +254,7 @@ where
                 .iter()
                 .map(|(name, column_type)| (name.as_str(), *column_type)),
             table_name,
+            partition_template,
             &mut schema,
             repos.as_mut(),
         )

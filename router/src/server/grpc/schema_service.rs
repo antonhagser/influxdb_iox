@@ -2,7 +2,7 @@ use crate::{
     namespace_cache::NamespaceCache,
     schema_validator::{SchemaError, SchemaValidator},
 };
-use data_types::{ColumnType, NamespaceName};
+use data_types::{partition_template::TablePartitionTemplateOverride, ColumnType, NamespaceName};
 use generated_types::influxdata::iox::schema::v1::*;
 use observability_deps::tracing::warn;
 use service_grpc_schema::schema_to_proto;
@@ -70,7 +70,7 @@ where
             namespace,
             table,
             columns,
-            partition_template: _partition_template,
+            partition_template,
         } = req;
 
         let namespace_name = NamespaceName::try_from(namespace.clone())
@@ -93,9 +93,26 @@ where
 
         let columns = convert_columns(columns)?;
 
+        let partition_template = TablePartitionTemplateOverride::try_new(
+            partition_template,
+            &namespace_schema.partition_template,
+        )
+        .map_err(|source| {
+            Status::invalid_argument(format!(
+                "Could not create TablePartitionTemplateOverride for table `{table}` \
+                in namespace `{namespace}`: {source}"
+            ))
+        })?;
+
         let maybe_schema = self
             .schema_validator
-            .upsert_schema(&namespace_name, &namespace_schema, &table, columns)
+            .upsert_schema(
+                &namespace_name,
+                &namespace_schema,
+                &table,
+                columns,
+                partition_template,
+            )
             .await
             .map_err(|e| match e {
                 SchemaError::ServiceLimit { .. } => Status::failed_precondition(e.to_string()),
@@ -285,6 +302,9 @@ mod tests {
 
     mod upsert_schema {
         use super::*;
+        use generated_types::influxdata::iox::partition_template::v1::{
+            template_part, PartitionTemplate, TemplatePart,
+        };
         use std::collections::BTreeMap;
 
         async fn upsert_schema(grpc: &Service, request: UpsertSchemaRequest) -> NamespaceSchema {
@@ -350,6 +370,104 @@ mod tests {
             let schema = upsert_schema(&grpc, request).await;
             assert_eq!(sorted_table_names(&schema), [table]);
             assert_eq!(sorted_column_names(&schema, table), ["temperature", "time"]);
+        }
+
+        #[tokio::test]
+        async fn new_table_with_partition_template() {
+            let namespace = "namespace_schema_upsert_new_partition_template";
+            let table = "table_schema_upsert_new_partition_template";
+            let columns: BTreeMap<_, _> = [
+                ("temperature".to_string(), ColumnType::I64 as i32),
+                ("region".to_string(), ColumnType::Tag as i32),
+            ]
+            .into();
+            let partition_template = PartitionTemplate {
+                parts: vec![
+                    TemplatePart {
+                        // Tag *not* mentioned in the columns to insert
+                        part: Some(template_part::Part::TagValue("color".into())),
+                    },
+                    TemplatePart {
+                        // Tag *mentioned* in the columns to insert
+                        part: Some(template_part::Part::TagValue("region".into())),
+                    },
+                    TemplatePart {
+                        part: Some(template_part::Part::TimeFormat("%Y".into())),
+                    },
+                ],
+            };
+
+            let grpc = service_setup(|repos| {
+                async {
+                    arbitrary_namespace(&mut *repos, namespace).await;
+                }
+                .boxed()
+            })
+            .await;
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: columns.clone(),
+                partition_template: Some(partition_template.clone()),
+            };
+
+            let schema = upsert_schema(&grpc, request).await;
+            assert_eq!(sorted_table_names(&schema), [table]);
+            assert_eq!(
+                schema.tables.get(table).unwrap().partition_template,
+                Some(partition_template)
+            );
+            // The "color" tag only used in the partition template gets created too
+            assert_eq!(
+                sorted_column_names(&schema, table),
+                ["color", "region", "temperature", "time"]
+            );
+        }
+
+        #[tokio::test]
+        async fn invalid_partition_template_fails() {
+            let namespace = "namespace_schema_upsert_new_partition_template";
+            let table = "table_schema_upsert_new_partition_template";
+            let columns: BTreeMap<_, _> = [
+                ("temperature".to_string(), ColumnType::I64 as i32),
+                ("region".to_string(), ColumnType::Tag as i32),
+            ]
+            .into();
+            let invalid_partition_template = PartitionTemplate { parts: vec![] };
+
+            let grpc = service_setup(|repos| {
+                async {
+                    arbitrary_namespace(&mut *repos, namespace).await;
+                }
+                .boxed()
+            })
+            .await;
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: columns.clone(),
+                partition_template: Some(invalid_partition_template.clone()),
+            };
+
+            upsert_schema_expecting_error(
+                &grpc,
+                request,
+                Code::InvalidArgument,
+                "Could not create TablePartitionTemplateOverride for table \
+                `table_schema_upsert_new_partition_template` in namespace \
+                `namespace_schema_upsert_new_partition_template`: \
+                Custom partition template must have at least one part",
+            )
+            .await;
+
+            let schema = get_schema(&grpc, namespace, None).await;
+            let table_names = sorted_table_names(&schema);
+            assert!(
+                table_names.is_empty(),
+                "Expected no tables to be created; got {table_names:?}"
+            );
         }
 
         #[tokio::test]
@@ -429,6 +547,40 @@ mod tests {
                 sorted_column_names(&schema, table),
                 ["name", "region", "time"]
             );
+        }
+
+        #[tokio::test]
+        async fn existing_table_upsert_partition_template_specified_gets_ignored() {
+            let namespace = "namespace_schema_upsert_existing_partition_template";
+            let table = "table_schema_upsert_existing_partition_template";
+
+            let partition_template = PartitionTemplate {
+                parts: vec![TemplatePart {
+                    part: Some(template_part::Part::TimeFormat("%Y".into())),
+                }],
+            };
+
+            let grpc = service_setup(|repos| {
+                async {
+                    let namespace = arbitrary_namespace(&mut *repos, namespace).await;
+                    arbitrary_table(&mut *repos, table, &namespace).await;
+                }
+                .boxed()
+            })
+            .await;
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: Default::default(),
+                partition_template: Some(partition_template),
+            };
+
+            let schema = upsert_schema(&grpc, request).await;
+            assert_eq!(sorted_table_names(&schema), [table]);
+            let schema_table = schema.tables.get(table).unwrap();
+            // The partition template gets ignored because the table already existed
+            assert_eq!(schema_table.partition_template, None);
         }
 
         #[tokio::test]
