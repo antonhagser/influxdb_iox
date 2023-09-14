@@ -94,7 +94,7 @@ impl SortKeyResolver {
 mod tests {
     use std::sync::Arc;
 
-    use data_types::SortedColumnSet;
+    use data_types::{ColumnId, ColumnType, SortedColumnSet};
 
     use super::*;
     use crate::test_util::populate_catalog_with_table_columns;
