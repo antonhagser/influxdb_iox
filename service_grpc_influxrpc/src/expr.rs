@@ -1303,8 +1303,6 @@ mod tests {
 
         let predicate = table_predicate(predicate);
 
-        let expected_expr = expected_expr;
-
         let converted_expr = &predicate.exprs;
 
         assert_eq!(
