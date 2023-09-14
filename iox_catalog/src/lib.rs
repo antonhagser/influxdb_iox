@@ -172,6 +172,27 @@ async fn validate_mutable_batch<R>(
 where
     R: RepoCollection + ?Sized,
 {
+    validate_and_insert_columns(
+        mb.columns()
+            .map(|(name, col)| (name, col.influx_type().into())),
+        table_name,
+        schema,
+        repos,
+    )
+    .await
+}
+
+// &mut Cow is used to avoid a copy, so allow it
+#[allow(clippy::ptr_arg)]
+async fn validate_and_insert_columns<R>(
+    columns: impl Iterator<Item = (&String, ColumnType)>,
+    table_name: &str,
+    schema: &mut Cow<'_, NamespaceSchema>,
+    repos: &mut R,
+) -> Result<()>
+where
+    R: RepoCollection + ?Sized,
+{
     // Check if the table exists in the schema.
     //
     // Because the entry API requires &mut it is not used to avoid a premature
@@ -184,7 +205,7 @@ where
             // Attempt to load an existing table from the catalog or create a new table in the
             // catalog to populate the cache.
 
-            // This table is being created implicitly by this write, so there's no
+            // This table is being created implicitly by this schema change, so there's no
             // possibility of a user-supplied partition template here, which is why there's
             // a hardcoded `None`. If there is a namespace template, it must be valid because
             // validity was checked during its creation, so that's why there's an `expect`.
@@ -214,34 +235,34 @@ where
     // the schema before returning.
     let mut column_batch: HashMap<&str, ColumnType> = HashMap::new();
 
-    for (name, col) in mb.columns() {
+    for (name, column_type) in columns {
         // Check if the column exists in the cached schema.
         //
         // If it does, validate it. If it does not exist, create it and insert
         // it into the cached schema.
 
         match table.columns.get(name.as_str()) {
-            Some(existing) if existing.matches_type(col.influx_type()) => {
+            Some(existing) if existing.column_type == column_type => {
                 // No action is needed as the column matches the existing column
                 // schema.
             }
             Some(existing) => {
-                // The column schema, and the column in the mutable batch are of
+                // The column schema and the column in the schema change are of
                 // different types.
                 return ColumnTypeMismatchSnafu {
                     name,
                     existing: existing.column_type,
-                    new: col.influx_type(),
+                    new: column_type,
                 }
                 .fail();
             }
             None => {
                 // The column does not exist in the cache, add it to the column
                 // batch to be bulk inserted later.
-                let old = column_batch.insert(name.as_str(), ColumnType::from(col.influx_type()));
+                let old = column_batch.insert(name.as_str(), column_type);
                 assert!(
                     old.is_none(),
-                    "duplicate column name `{name}` in new column batch shouldn't be possible"
+                    "duplicate column name `{name}` in new column schema shouldn't be possible"
                 );
             }
         }
