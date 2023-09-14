@@ -1,6 +1,6 @@
 //! Implements a gRPC binary logger. See <https://github.com/grpc/grpc/blob/master/doc/binary-logging.md>
 //!
-#![deny(rustdoc::broken_intra_doc_links, rust_2018_idioms)]
+#![deny(rustdoc::broken_intra_doc_links)]
 #![warn(
     missing_copy_implementations,
     missing_debug_implementations,

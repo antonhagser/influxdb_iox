@@ -166,7 +166,7 @@ impl Column {
     }
 
     /// returns true if the column type matches the line protocol field value type
-    pub fn matches_field_type(&self, field_value: &FieldValue) -> bool {
+    pub fn matches_field_type(&self, field_value: &FieldValue<'_>) -> bool {
         match field_value {
             FieldValue::I64(_) => self.column_type == ColumnType::I64,
             FieldValue::U64(_) => self.column_type == ColumnType::U64,
@@ -193,7 +193,7 @@ impl ColumnSchema {
     }
 
     /// returns true if the column matches the line protocol field value type
-    pub fn matches_field_type(&self, field_value: &FieldValue) -> bool {
+    pub fn matches_field_type(&self, field_value: &FieldValue<'_>) -> bool {
         matches!(
             (field_value, self.column_type),
             (FieldValue::I64(_), ColumnType::I64)
@@ -318,7 +318,7 @@ impl PartialEq<InfluxColumnType> for ColumnType {
 }
 
 /// Returns the `ColumnType` for the passed in line protocol `FieldValue` type
-pub fn column_type_from_field(field_value: &FieldValue) -> ColumnType {
+pub fn column_type_from_field(field_value: &FieldValue<'_>) -> ColumnType {
     match field_value {
         FieldValue::I64(_) => ColumnType::I64,
         FieldValue::U64(_) => ColumnType::U64,

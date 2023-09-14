@@ -113,7 +113,7 @@
 //! [`Partitioner`]: crate::dml_handlers::Partitioner
 //! [`RpcWrite`]: crate::dml_handlers::RpcWrite
 
-#![deny(rustdoc::broken_intra_doc_links, rust_2018_idioms)]
+#![deny(rustdoc::broken_intra_doc_links)]
 #![warn(
     missing_docs,
     clippy::todo,

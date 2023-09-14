@@ -71,7 +71,7 @@ impl From<(PartitionId, Option<&PartitionHashId>)> for TransitionPartitionId {
 }
 
 impl std::fmt::Display for TransitionPartitionId {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Deprecated(old_partition_id) => write!(f, "{}", old_partition_id.0),
             Self::Deterministic(partition_hash_id) => write!(f, "{}", partition_hash_id),
@@ -169,7 +169,7 @@ impl PartitionId {
 }
 
 impl std::fmt::Display for PartitionId {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -279,7 +279,7 @@ const PARTITION_HASH_ID_SIZE_BYTES: usize = 32;
 pub struct PartitionHashId(Arc<[u8; PARTITION_HASH_ID_SIZE_BYTES]>);
 
 impl std::fmt::Display for PartitionHashId {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for byte in &*self.0 {
             write!(f, "{:02x}", byte)?;
         }

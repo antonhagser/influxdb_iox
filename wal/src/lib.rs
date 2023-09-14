@@ -2,7 +2,7 @@
 //!
 //! This crate provides a local-disk WAL for the IOx ingestion pipeline.
 
-#![deny(rustdoc::broken_intra_doc_links, rust_2018_idioms)]
+#![deny(rustdoc::broken_intra_doc_links)]
 #![warn(
     missing_copy_implementations,
     missing_debug_implementations,

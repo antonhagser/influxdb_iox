@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![deny(
     rustdoc::broken_intra_doc_links,
-    rust_2018_idioms,
     missing_debug_implementations,
     unreachable_pub
 )]

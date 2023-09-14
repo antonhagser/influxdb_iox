@@ -3,7 +3,7 @@
 //! Authorization client interface to be used by IOx components to
 //! restrict access to authorized requests where required.
 
-#![deny(rustdoc::broken_intra_doc_links, rust_2018_idioms)]
+#![deny(rustdoc::broken_intra_doc_links)]
 #![warn(
     missing_copy_implementations,
     missing_docs,

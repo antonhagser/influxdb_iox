@@ -126,7 +126,7 @@ async fn sharded_compactor_0_always_compacts_partition_1() {
             // Run the compactor
             Step::Compact,
             // Run the 'remote partition' command
-            Step::Custom(Box::new(|state: &mut StepTestState| {
+            Step::Custom(Box::new(|state: &mut StepTestState<'_>| {
                 async {
                     let router_addr = state.cluster().router().router_grpc_base().to_string();
 
@@ -211,7 +211,7 @@ async fn sharded_compactor_1_never_compacts_partition_1() {
             // Run the compactor
             Step::Compact,
             // Run the 'remote partition' command
-            Step::Custom(Box::new(|state: &mut StepTestState| {
+            Step::Custom(Box::new(|state: &mut StepTestState<'_>| {
                 async {
                     let router_addr = state.cluster().router().router_grpc_base().to_string();
 

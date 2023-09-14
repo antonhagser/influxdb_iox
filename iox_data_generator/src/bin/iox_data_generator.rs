@@ -1,5 +1,5 @@
 //! Entry point for generator CLI.
-#![deny(rustdoc::broken_intra_doc_links, rustdoc::bare_urls, rust_2018_idioms)]
+#![deny(rustdoc::broken_intra_doc_links, rustdoc::bare_urls)]
 #![warn(
     missing_copy_implementations,
     missing_debug_implementations,

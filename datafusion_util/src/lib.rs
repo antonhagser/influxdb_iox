@@ -5,7 +5,6 @@
     clippy::clone_on_ref_ptr,
     rustdoc::broken_intra_doc_links,
     rustdoc::bare_urls,
-    rust_2018_idioms,
     unused_crate_dependencies
 )]
 #![allow(clippy::clone_on_ref_ptr)]

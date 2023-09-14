@@ -3,7 +3,7 @@
 //! This crate builds on top of the WAL implementation to provide tools for
 //! inspecting individual segment files and translating them to human readable
 //! formats.
-#![deny(rustdoc::broken_intra_doc_links, rust_2018_idioms)]
+#![deny(rustdoc::broken_intra_doc_links)]
 #![warn(
     clippy::clone_on_ref_ptr,
     clippy::dbg_macro,

@@ -154,10 +154,10 @@ impl<'a> StepTestState<'a> {
 ///   }.boxed()
 /// });
 /// ```
-pub type FCustom = Box<dyn for<'b> Fn(&'b mut StepTestState) -> BoxFuture<'b, ()> + Send + Sync>;
+pub type FCustom = Box<dyn for<'b> Fn(&'b mut StepTestState<'_>) -> BoxFuture<'b, ()> + Send + Sync>;
 
 /// Function to do custom validation on metrics. Expected to panic on validation failure.
-pub type MetricsValidationFn = Box<dyn Fn(&mut StepTestState, String) + Send + Sync>;
+pub type MetricsValidationFn = Box<dyn Fn(&mut StepTestState<'_>, String) + Send + Sync>;
 
 /// Possible test steps that a test can perform
 pub enum Step {

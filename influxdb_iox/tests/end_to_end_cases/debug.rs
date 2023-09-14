@@ -76,7 +76,7 @@ async fn build_catalog() {
                 sql: sql.to_string(),
                 expected: expected.to_vec(),
             },
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let router_addr = state.cluster().router().router_grpc_base().to_string();
                     let namespace = state.cluster().namespace().to_string();

@@ -102,7 +102,7 @@
 //! common reporting data model, they can plug into `Registry`
 //!
 
-#![deny(rustdoc::broken_intra_doc_links, rustdoc::bare_urls, rust_2018_idioms)]
+#![deny(rustdoc::broken_intra_doc_links, rustdoc::bare_urls)]
 #![warn(
     missing_debug_implementations,
     clippy::explicit_iter_loop,

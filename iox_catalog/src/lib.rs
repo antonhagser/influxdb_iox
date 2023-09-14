@@ -1,7 +1,7 @@
 //! The IOx catalog keeps track of the namespaces, tables, columns, parquet files,
 //! and deletes in the system. Configuration information for distributing ingest, query
 //! and compaction is also stored here.
-#![deny(rustdoc::broken_intra_doc_links, rust_2018_idioms)]
+#![deny(rustdoc::broken_intra_doc_links)]
 #![warn(
     missing_copy_implementations,
     missing_debug_implementations,

@@ -63,7 +63,7 @@ fn namespace_schema_cache_benchmarks(c: &mut Criterion) {
 }
 
 fn bench_add_new_tables_with_columns(
-    group: &mut BenchmarkGroup<WallTime>,
+    group: &mut BenchmarkGroup<'_, WallTime>,
     tables: usize,
     columns_per_table: usize,
 ) {
@@ -95,7 +95,7 @@ fn bench_add_new_tables_with_columns(
 }
 
 fn bench_add_columns_to_existing_table(
-    group: &mut BenchmarkGroup<WallTime>,
+    group: &mut BenchmarkGroup<'_, WallTime>,
     initial_column_count: usize,
     add_new_columns: usize,
 ) {

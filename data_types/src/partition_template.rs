@@ -1383,7 +1383,7 @@ mod tests {
         );
 
         fn extract_sqlite_argument_text(
-            argument_value: &sqlx::sqlite::SqliteArgumentValue,
+            argument_value: &sqlx::sqlite::SqliteArgumentValue<'_>,
         ) -> String {
             match argument_value {
                 sqlx::sqlite::SqliteArgumentValue::Text(cow) => cow.to_string(),

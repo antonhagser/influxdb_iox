@@ -1,6 +1,6 @@
 //! A metric instrumentation wrapper over [`ObjectStore`] implementations.
 
-#![deny(rustdoc::broken_intra_doc_links, rustdoc::bare_urls, rust_2018_idioms)]
+#![deny(rustdoc::broken_intra_doc_links, rustdoc::bare_urls)]
 #![allow(clippy::clone_on_ref_ptr)]
 #![warn(
     missing_copy_implementations,

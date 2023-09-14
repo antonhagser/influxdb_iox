@@ -1,7 +1,7 @@
 //! gRPC service for getting files from the object store a remote IOx service is connected to. Used
 //! in router, but can be included in any gRPC server.
 
-#![deny(rustdoc::broken_intra_doc_links, rustdoc::bare_urls, rust_2018_idioms)]
+#![deny(rustdoc::broken_intra_doc_links, rustdoc::bare_urls)]
 #![warn(
     missing_copy_implementations,
     missing_debug_implementations,

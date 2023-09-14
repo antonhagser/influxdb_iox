@@ -12,7 +12,7 @@ pub async fn test_panic() {
 
     StepTest::new(
         &mut cluster,
-        vec![Step::Custom(Box::new(move |state: &mut StepTestState| {
+        vec![Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
             async move {
                 let querier = state.cluster().querier();
                 assert_panic_logging(querier.querier_grpc_connection(), querier.log_path().await)

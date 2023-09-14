@@ -106,7 +106,7 @@ async fn authz() {
                 expected_error_code: tonic::Code::Unauthenticated,
                 expected_message: "Unauthenticated".to_string(),
             },
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 let token = write_token.clone();
                 async move {
                     let cluster = state.cluster();

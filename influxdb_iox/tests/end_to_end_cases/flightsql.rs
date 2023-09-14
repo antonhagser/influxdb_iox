@@ -45,7 +45,7 @@ async fn flightsql_adhoc_query() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let sql = format!("select * from {table_name}");
                     let mut client = flightsql_client(state.cluster());
@@ -89,7 +89,7 @@ async fn flightsql_adhoc_query_error() {
                  foo,tag1=A,tag2=C val=43i 123457"
                     .to_string(),
             ),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let sql = String::from("select * from incorrect_table");
 
@@ -128,7 +128,7 @@ async fn flightsql_prepared_query() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let sql = format!("select * from {table_name}");
                     let mut client = flightsql_client(state.cluster());
@@ -175,7 +175,7 @@ async fn flightsql_get_sql_infos() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
 
@@ -251,7 +251,7 @@ async fn flightsql_get_catalogs() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
 
@@ -295,7 +295,7 @@ async fn flightsql_get_catalogs_matches_information_schema() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
                     // output of get_catalogs  is built manually in
@@ -357,7 +357,7 @@ async fn flightsql_get_cross_reference() {
                  {foreign_table_name},tag1=B,tag2=D val=42i 123456\n\
                  {foreign_table_name},tag1=C,tag2=F val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
                     let pk_catalog: Option<String> = None;
@@ -412,7 +412,7 @@ async fn flightsql_get_tables() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     struct TestCase {
                         catalog: Option<&'static str>,
@@ -579,7 +579,7 @@ async fn flightsql_get_tables_decoded_table_schema() {
         &mut cluster,
         vec![
             Step::WriteLineProtocol(String::from("the_table val=42i 123456")),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
                     let catalog = Some("public");
@@ -655,7 +655,7 @@ async fn flightsql_get_tables_matches_information_schema() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
 
@@ -725,7 +725,7 @@ async fn flightsql_get_table_types() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
 
@@ -770,7 +770,7 @@ async fn flightsql_get_table_types_matches_information_schema() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
 
@@ -831,7 +831,7 @@ async fn flightsql_get_db_schemas() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     struct TestCase {
                         catalog: Option<&'static str>,
@@ -941,7 +941,7 @@ async fn flightsql_get_db_schema_matches_information_schema() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
 
@@ -1008,7 +1008,7 @@ async fn flightsql_get_exported_keys() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
                     let catalog: Option<String> = None;
@@ -1054,7 +1054,7 @@ async fn flightsql_get_imported_keys() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
                     let catalog: Option<String> = None;
@@ -1100,7 +1100,7 @@ async fn flightsql_get_primary_keys() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
                     let catalog: Option<String> = None;
@@ -1146,7 +1146,7 @@ async fn flightsql_get_xdbc_type_info() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
                     let data_type: Option<i32> = None;
@@ -1172,7 +1172,7 @@ async fn flightsql_get_xdbc_type_info() {
                 }
                 .boxed()
             })),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     // test filter by type
                     let mut client = flightsql_client(state.cluster());
@@ -1230,7 +1230,7 @@ async fn flightsql_jdbc() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 // satisfy the borrow checker
                 async move {
                     let namespace = state.cluster().namespace();
@@ -1294,7 +1294,7 @@ async fn flightsql_jdbc_authz_token() {
                 ),
                 authorization: format!("Token {}", write_token.clone()),
             },
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 let token = read_token.clone();
                 // satisfy the borrow checker
                 async move {
@@ -1363,7 +1363,7 @@ async fn flightsql_jdbc_authz_handshake() {
                 ),
                 authorization: format!("Token {}", write_token.clone()),
             },
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 let token = read_token.clone();
                 // satisfy the borrow checker
                 async move {
@@ -1527,7 +1527,7 @@ async fn flightsql_schema_matches() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster()).into_inner();
 
@@ -1643,7 +1643,7 @@ async fn authz() {
                 ),
                 authorization: format!("Token {}", write_token.clone()),
             },
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client(state.cluster());
                     let err = client.get_table_types().await.unwrap_err();
@@ -1655,7 +1655,7 @@ async fn authz() {
                 }
                 .boxed()
             })),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 let token = write_token.clone();
                 async move {
                     let mut client = flightsql_client(state.cluster());
@@ -1674,7 +1674,7 @@ async fn authz() {
                 }
                 .boxed()
             })),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 let token = read_token.clone();
                 async move {
                     let mut client = flightsql_client(state.cluster());
@@ -1733,7 +1733,7 @@ async fn flightsql_client_header_same_database() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client_helper(state.cluster(), "iox-namespace-name");
                     for header_name in &["database", "bucket", "bucket-name"] {
@@ -1784,7 +1784,7 @@ async fn flightsql_client_header_different_database() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let mut client = flightsql_client_helper(state.cluster(), "database");
                     client
@@ -1824,7 +1824,7 @@ async fn flightsql_client_header_no_database() {
                 "{table_name},tag1=A,tag2=B val=42i 123456\n\
                  {table_name},tag1=A,tag2=C val=43i 123457"
             )),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     let connection = state.cluster().querier().querier_grpc_connection();
                     let (channel, _headers) = connection.into_grpc_connection().into_parts();

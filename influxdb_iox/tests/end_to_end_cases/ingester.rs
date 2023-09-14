@@ -26,7 +26,7 @@ async fn persist_on_demand() {
         vec![
             Step::RecordNumParquetFiles,
             Step::WriteLineProtocol(format!("{table_name},tag1=A,tag2=B val=42i 123456")),
-            Step::Custom(Box::new(move |state: &mut StepTestState| {
+            Step::Custom(Box::new(move |state: &mut StepTestState<'_>| {
                 async move {
                     // query the ingester
                     let query = IngesterQueryRequest::new(

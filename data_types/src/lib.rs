@@ -130,7 +130,7 @@ impl NamespaceId {
 }
 
 impl std::fmt::Display for NamespaceId {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -156,7 +156,7 @@ impl TableId {
 }
 
 impl std::fmt::Display for TableId {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -267,7 +267,7 @@ impl ParquetFileId {
 }
 
 impl std::fmt::Display for ParquetFileId {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Use `self.number` to refer to each positional data point.
         write!(f, "{}", self.0)
     }

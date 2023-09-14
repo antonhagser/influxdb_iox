@@ -1,4 +1,4 @@
-#![deny(rustdoc::broken_intra_doc_links, rustdoc::bare_urls, rust_2018_idioms)]
+#![deny(rustdoc::broken_intra_doc_links, rustdoc::bare_urls)]
 // `clippy::use_self` is deliberately excluded from the lints this crate uses.
 // See <https://github.com/rust-lang/rust-clippy/issues/6902>.
 #![warn(
