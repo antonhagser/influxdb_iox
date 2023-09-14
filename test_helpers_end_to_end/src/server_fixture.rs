@@ -287,7 +287,7 @@ impl TestServer {
     async fn restart(&mut self) {
         let mut ready_guard = self.ready.lock().await;
         let mut server_process = self.server_process.lock().await;
-        kill_politely(&mut server_process.child, Duration::from_secs(5));
+        kill_politely(&server_process.child, Duration::from_secs(5));
         *server_process =
             Self::create_server_process(&self.test_config, Some(server_process.log_path.clone()))
                 .await;
@@ -607,7 +607,7 @@ impl Drop for TestServer {
             .expect("should be able to get a server process lock");
 
         server_dead_inner(server_lock.deref_mut());
-        kill_politely(&mut server_lock.child, GRACEFUL_SERVER_STOP_TIMEOUT);
+        kill_politely(&server_lock.child, GRACEFUL_SERVER_STOP_TIMEOUT);
 
         dump_log_to_stdout(
             &format!("{:?}", self.test_config.server_type()),
@@ -637,7 +637,7 @@ fn server_dead_inner(server_process: &mut Process) -> bool {
 }
 
 /// Attempt to kill a child process politely.
-fn kill_politely(child: &mut Child, wait: Duration) {
+fn kill_politely(child: &Child, wait: Duration) {
     use nix::{
         sys::{
             signal::{self, Signal},

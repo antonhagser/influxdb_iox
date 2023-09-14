@@ -145,7 +145,7 @@ impl Display for Language {
 }
 
 pub async fn run(
-    cluster: &mut MiniCluster,
+    cluster: &MiniCluster,
     input_path: PathBuf,
     setup_name: String,
     contents: String,

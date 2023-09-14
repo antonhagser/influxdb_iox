@@ -372,7 +372,7 @@ impl RemoteImporter {
 
         // Create a new partition
         let partition_key = iox_metadata.partition_key.clone();
-        let mut partition = self
+        let partition = self
             .create_partition(repos.as_mut(), &table, partition_key)
             .await?;
 
@@ -421,7 +421,7 @@ impl RemoteImporter {
 
         // Update partition sort key
         let partition = self
-            .update_partition(&mut partition, repos.as_mut(), &table, &iox_metadata)
+            .update_partition(&partition, repos.as_mut(), &table, &iox_metadata)
             .await?;
 
         // Now copy the parquet files into the object store
@@ -515,7 +515,7 @@ impl RemoteImporter {
     /// metadata stored in the parquet file, if needed
     async fn update_partition(
         &self,
-        partition: &mut Partition,
+        partition: &Partition,
         repos: &mut dyn RepoCollection,
         table: &Table,
         iox_metadata: &IoxMetadata,

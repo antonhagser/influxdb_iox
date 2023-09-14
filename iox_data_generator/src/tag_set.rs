@@ -367,7 +367,7 @@ impl GeneratedTagSets {
 
     fn generate_belongs_to(
         &mut self,
-        template: &mut Handlebars<'static>,
+        template: &Handlebars<'static>,
         belongs_to: &str,
         spec: &ValuesSpec,
     ) -> Result<()> {

@@ -313,6 +313,7 @@ where
 ///
 /// This function panics if `endpoints.next()` returns [`None`] (the number of
 /// upstreams should be validated before starting the write loop).
+#[allow(clippy::needless_pass_by_ref_mut)] // the closure borrows `endpoints` mutably
 async fn write_loop<T>(
     endpoints: &mut UpstreamSnapshot<T>,
     req: &WriteRequest,
