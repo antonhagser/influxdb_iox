@@ -245,6 +245,7 @@ impl Client {
 
     /// Perform a handshake with the server, as defined by the Arrow Flight API.
     pub async fn handshake(&mut self) -> Result<(), Error> {
+        print!("chunchun influxdb_iox_client flight mod handshake\n");
         // handshake is an echo server. Send some random bytes and
         // expect the same back.
         let payload = rand::thread_rng().gen::<[u8; 16]>().to_vec();
@@ -257,8 +258,10 @@ impl Client {
             .map_err(Error::HandshakeFailed)?;
 
         if payload.eq(&response) {
+            print!("chunchun handshake response - OK\n");
             Ok(())
         } else {
+            print!("chunchun handshake response - Err\n");
             Err(Error::HandshakeFailed("reponse mismatch".into()))
         }
     }

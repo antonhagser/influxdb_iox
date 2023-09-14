@@ -700,7 +700,7 @@ where
         if let Some(header) = response_header {
             response.metadata_mut().insert("authorization", header);
         }
-        print!("chunchun handshake\n");
+        print!("chunchun service_grpc_flight handshake\n");
         Ok(response)
     }
 

@@ -249,6 +249,7 @@ where
         &self,
         request: Request<Streaming<HandshakeRequest>>,
     ) -> Result<Response<Self::HandshakeStream>, tonic::Status> {
+        print!("chunchun grpc query handshake\n");
         let request = request.into_inner().message().await?.unwrap();
         let response = HandshakeResponse {
             protocol_version: request.protocol_version,
