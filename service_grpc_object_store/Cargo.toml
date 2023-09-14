@@ -21,3 +21,6 @@ bytes = "1.5"
 data_types = { path = "../data_types" }
 metric = { path = "../metric" }
 tokio = { version = "1.32", features = ["macros", "net", "parking_lot", "rt-multi-thread", "signal", "sync", "time"] }
+
+[lints]
+workspace = true

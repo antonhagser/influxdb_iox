@@ -19,3 +19,6 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [dev-dependencies] # In alphabetical order
 snafu = "0.7"
 tokio = { version = "1.32", features = ["macros", "io-util"] }
+
+[lints]
+workspace = true

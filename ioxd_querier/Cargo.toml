@@ -41,3 +41,6 @@ tokio-util = "0.7.8"
 iox_tests = { path = "../iox_tests" }
 
 # Crates.io dependencies, in alphabetical order
+
+[lints]
+workspace = true

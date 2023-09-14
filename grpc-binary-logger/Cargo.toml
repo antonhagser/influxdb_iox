@@ -29,3 +29,6 @@ assert_matches = "1"
 [build-dependencies]
 prost-build = "0.11"
 tonic-build = { workspace = true }
+
+[lints]
+workspace = true

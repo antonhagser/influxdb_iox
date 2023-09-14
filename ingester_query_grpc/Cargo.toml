@@ -26,3 +26,6 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 tonic-build = { workspace = true }
 prost-build = "0.11"
 pbjson-build = "0.5"
+
+[lints]
+workspace = true

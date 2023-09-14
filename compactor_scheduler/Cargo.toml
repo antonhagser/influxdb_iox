@@ -26,3 +26,6 @@ assert_matches = "1.5.0"
 iox_tests = { path = "../iox_tests" }
 test_helpers = { path = "../test_helpers"}
 tokio = { version = "1.32", features = ["macros", "net", "parking_lot", "rt-multi-thread", "signal", "sync", "time"] }
+
+[lints]
+workspace = true

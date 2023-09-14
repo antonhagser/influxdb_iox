@@ -37,3 +37,6 @@ proptest = { version = "1", default_features = false, features = ["std"] }
 rand = "0.8"
 tempfile = "3"
 test_helpers = { path = "../test_helpers" }
+
+[lints]
+workspace = true

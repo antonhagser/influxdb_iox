@@ -42,7 +42,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 tonic = { workspace = true }
 trace = { path = "../trace/" }
 trace_http = { path = "../trace_http" }
-
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
@@ -83,3 +82,6 @@ harness = false
 [[bench]]
 name = "namespace_schema_cache"
 harness = false
+
+[lints]
+workspace = true

@@ -16,3 +16,6 @@ once_cell = { version = "1.18", features = ["parking_lot"] }
 parking_lot = "0.12"
 regex = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lints]
+workspace = true

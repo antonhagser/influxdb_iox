@@ -34,3 +34,6 @@ tokio-util = "0.7.8"
 tonic = { workspace = true }
 trace = { version = "0.1.0", path = "../trace" }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

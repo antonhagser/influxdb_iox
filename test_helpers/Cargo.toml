@@ -19,3 +19,6 @@ tokio = { version = "1.32.0", optional = true, default_features = false, feature
 [features]
 default = []
 future_timeout = ["async-trait", "tokio"]
+
+[lints]
+workspace = true

@@ -57,3 +57,6 @@ test-util = ["influxdb_storage_client", "service_grpc_testing", "tokio"]
 [[test]]
 name = "log_on_panic"
 required-features = ["test-util"]
+
+[lints]
+workspace = true

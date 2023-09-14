@@ -23,3 +23,6 @@ prost-build = "0.11.9"
 
 [dev-dependencies]
 test_helpers = { path = "../test_helpers", features = ["future_timeout"] }
+
+[lints]
+workspace = true

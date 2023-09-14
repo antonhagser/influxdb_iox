@@ -27,3 +27,6 @@ mutable_batch_lp = { path = "../mutable_batch_lp" }
 paste = "1.0.14"
 proptest = { version = "1.2.0", default-features = false }
 rand = "0.8"
+
+[lints]
+workspace = true

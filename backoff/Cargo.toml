@@ -11,3 +11,6 @@ observability_deps = { path = "../observability_deps" }
 rand = "0.8"
 snafu = "0.7"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

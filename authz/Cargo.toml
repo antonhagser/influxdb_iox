@@ -6,8 +6,6 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 backoff = { path = "../backoff" }
 http = {version = "0.2.9", optional = true }
@@ -32,3 +30,6 @@ tokio = "1.32.0"
 
 [features]
 http = ["dep:http"]
+
+[lints]
+workspace = true

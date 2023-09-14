@@ -37,3 +37,6 @@ assert_matches = "1"
 async-trait = "0.1"
 metric = { path = "../metric" }
 test_helpers = { path = "../test_helpers" }
+
+[lints]
+workspace = true

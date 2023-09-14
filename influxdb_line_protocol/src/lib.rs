@@ -55,6 +55,11 @@
 //! [Go implementation]: https://github.com/influxdata/influxdb/blob/217eddc87e14a79b01d0c22994fc139f530094a2/models/points_parser.go
 //! [InfluxDB IOx]: https://github.com/influxdata/influxdb_iox
 //! [nom]: https://crates.io/crates/nom
+
+// Note this crate is published as its own crate on crates.io but kept in this repository for
+// maintenance convenience.
+//
+// Thus this crate can't use workspace lints, so these lint configurations must be here.
 #![deny(rustdoc::broken_intra_doc_links, rustdoc::bare_urls, rust_2018_idioms)]
 #![warn(
     missing_copy_implementations,
@@ -66,6 +71,7 @@
     clippy::dbg_macro,
     unused_crate_dependencies
 )]
+// DO NOT REMOVE these lint configurations; see note above!
 
 pub mod builder;
 pub use builder::LineProtocolBuilder;

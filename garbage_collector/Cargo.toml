@@ -34,3 +34,5 @@ parquet_file = { path = "../parquet_file" }
 tempfile = "3"
 sqlx = { version = "0.7.1", features = [ "runtime-tokio-rustls" ] }
 
+[lints]
+workspace = true

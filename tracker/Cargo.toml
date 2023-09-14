@@ -26,3 +26,6 @@ tempfile = "3.8.0"
 # Need the multi-threaded executor for testing
 tokio = { version = "1.32", features = ["macros", "parking_lot", "rt-multi-thread", "time"] }
 test_helpers = { path = "../test_helpers", features = ["future_timeout"] }
+
+[lints]
+workspace = true

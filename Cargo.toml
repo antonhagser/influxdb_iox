@@ -136,6 +136,8 @@ tonic-build = { version = "0.9.2" }
 tonic-health = { version = "0.9.2" }
 tonic-reflection = { version = "0.9.2" }
 
+[workspace.lints]
+
 # This profile optimizes for runtime performance and small binary size at the expense of longer
 # build times. It's most suitable for final release builds.
 [profile.release]

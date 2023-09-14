@@ -18,6 +18,8 @@ tokio = "1.32"
 snafu = "0.7"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
-
 [dev-dependencies]
 mutable_batch_lp = { path = "../mutable_batch_lp" }
+
+[lints]
+workspace = true

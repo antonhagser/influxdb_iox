@@ -29,3 +29,6 @@ test_helpers = { path = "../test_helpers" }
 azure = ["object_store/azure"] # Optional Azure Object store support
 gcp = ["object_store/gcp"] # Optional GCP object store support
 aws = ["object_store/aws"] # Optional AWS / S3 object store support
+
+[lints]
+workspace = true

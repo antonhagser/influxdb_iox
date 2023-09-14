@@ -17,3 +17,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 [dev-dependencies]
 synchronized-writer = "1"
 regex = "1"
+
+[lints]
+workspace = true

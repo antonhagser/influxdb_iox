@@ -17,3 +17,6 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [dev-dependencies]
 tokio = { version = "1.32", features = ["macros", "parking_lot", "rt-multi-thread"] }
 mockito = { version = "1.1", default-features = false }
+
+[lints]
+workspace = true

@@ -55,3 +55,6 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [dev-dependencies]
 # Workspace dependencies, in alphabetical order
 # Crates.io dependencies, in alphabetical order
+
+[lints]
+workspace = true

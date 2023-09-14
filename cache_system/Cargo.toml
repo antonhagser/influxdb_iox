@@ -34,3 +34,6 @@ bench = false
 [[bench]]
 name = "addressable_heap"
 harness = false
+
+[lints]
+workspace = true

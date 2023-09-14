@@ -100,3 +100,6 @@ required-features = ["benches"]
 [[bench]]
 name = "query"
 harness = false
+
+[lints]
+workspace = true

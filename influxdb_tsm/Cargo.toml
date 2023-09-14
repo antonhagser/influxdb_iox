@@ -17,3 +17,6 @@ flate2 = "1.0"
 hex = "0.4.2"
 rand = "0.8.3"
 test_helpers = { path = "../test_helpers" }
+
+[lints]
+workspace = true

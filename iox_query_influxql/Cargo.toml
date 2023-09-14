@@ -29,3 +29,6 @@ chrono = { version = "0.4", default-features = false }
 test_helpers = { path = "../test_helpers" }
 assert_matches = "1"
 insta = { version = "1", features = ["yaml"] }
+
+[lints]
+workspace = true
