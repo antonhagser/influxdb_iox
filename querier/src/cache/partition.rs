@@ -478,12 +478,14 @@ mod tests {
             .clone();
         assert_eq!(
             sort_key1a.as_ref().unwrap().as_ref(),
-            &PartitionSortKey {
-                sort_key: Arc::new(p1.sort_key().unwrap()),
-                column_set: HashSet::from([c1.column.id, c2.column.id]),
-                column_order: [c1.column.id, c2.column.id].into(),
-            }
+            &PartitionSortKey::new(p1.sort_key_ids_none_if_empty().unwrap(), &cached_table.column_id_map)
+            // &PartitionSortKey {
+            //     sort_key: Arc::new(p1.sort_key().unwrap()),
+            //     column_set: HashSet::from([c1.column.id, c2.column.id]),
+            //     column_order: [c1.column.id, c2.column.id].into(),
+            // }
         );
+
         assert_catalog_access_metric_count(
             &catalog.metric_registry,
             "partition_get_by_hash_id_batch",
@@ -826,7 +828,8 @@ mod tests {
         let c2 = t.create_column("time", ColumnType::Time).await;
         let p = t.create_partition("k1").await;
         let p_id = p.partition.transition_partition_id();
-        let p_sort_key = p.partition.sort_key();
+        // let p_sort_key = p.partition.sort_key();
+        let p_sort_key_ids = p.partition.sort_key_ids_none_if_empty();
         let cached_table = Arc::new(CachedTable {
             id: t.table.id,
             schema: schema(),
@@ -865,7 +868,8 @@ mod tests {
         );
 
         // requesting nother will not expire
-        assert!(p_sort_key.is_none());
+        // assert!(p_sort_key.is_none());
+        assert!(p_sort_key_ids.is_none());
         let sort_key = cache
             .get_one(Arc::clone(&cached_table), &p_id, &[], None)
             .await
@@ -903,7 +907,7 @@ mod tests {
         assert_catalog_access_metric_count(&catalog.metric_registry, "partition_get_by_hash_id", 1);
 
         // expire & fetch
-        let p_sort_key = p.partition.sort_key();
+        // let p_sort_key = p.partition.sort_key();
         let sort_key = cache
             .get_one(Arc::clone(&cached_table), &p_id, &[c1.column.id], None)
             .await
@@ -912,11 +916,12 @@ mod tests {
             .clone();
         assert_eq!(
             sort_key.as_ref().unwrap().as_ref(),
-            &PartitionSortKey {
-                sort_key: Arc::new(p_sort_key.clone().unwrap()),
-                column_set: HashSet::from([c1.column.id, c2.column.id]),
-                column_order: [c1.column.id, c2.column.id].into(),
-            }
+            &PartitionSortKey::new(p.partition.sort_key_ids_none_if_empty().unwrap(), &cached_table.column_id_map)
+            // &PartitionSortKey {
+            //     sort_key: Arc::new(p_sort_key.clone().unwrap()),
+            //     column_set: HashSet::from([c1.column.id, c2.column.id]),
+            //     column_order: [c1.column.id, c2.column.id].into(),
+            // }
         );
         assert_catalog_access_metric_count(
             &catalog.metric_registry,

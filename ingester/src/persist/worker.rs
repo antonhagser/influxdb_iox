@@ -175,6 +175,8 @@ where
     // Sort keys may be updated by any ingester at any time, and updates to the
     // sort key MUST be serialised.
     let (sort_key, sort_key_ids) = ctx.sort_key().get().await;
+    println!("===== sort_key: {:?}", sort_key);
+    println!("===== sort_key_ids: {:?}", sort_key_ids);
 
     // Fetch the "column name -> column ID" map.
     //
@@ -183,16 +185,18 @@ where
     // fetched in reverse order, a race exists where the sort key could be
     // updated to include a column that does not exist in the column map.
     let column_map = fetch_column_map(ctx, worker_state, sort_key.as_ref()).await?;
+    println!("===== column_map: {:?}", column_map);
 
     let compacted = compact(ctx, worker_state, sort_key.as_ref()).await;
     let (sort_key_update, parquet_table_data) =
         upload(ctx, worker_state, compacted, &column_map).await;
+    println!("===== sort_key_update: {:?}", sort_key_update);
 
     if let Some(sort_key_update) = sort_key_update {
         update_catalog_sort_key(
             ctx,
             worker_state,
-            sort_key,        // Old sort key prior to this persist job
+            // sort_key,        // Old sort key prior to this persist job
             sort_key_ids,    // Corresponding old sort key IDs prior to this persist job
             sort_key_update, // New sort key updated by this persist job
             parquet_table_data.object_store_id,
@@ -385,7 +389,7 @@ where
 async fn update_catalog_sort_key<O>(
     ctx: &mut Context,
     worker_state: &SharedWorkerState<O>,
-    old_sort_key: Option<SortKey>, // todo: remove this argument in the future
+    // old_sort_key: Option<SortKey>, // todo: remove this argument in the future
     old_sort_key_ids: Option<SortedColumnSet>,
     new_sort_key: SortKey,
     object_store_id: Uuid,
@@ -394,9 +398,9 @@ async fn update_catalog_sort_key<O>(
 where
     O: Send + Sync,
 {
-    // convert old_sort_key into a vector of string
-    let old_sort_key =
-        old_sort_key.map(|v| v.to_columns().map(|v| v.to_string()).collect::<Vec<_>>());
+    // // convert old_sort_key into a vector of string
+    // let old_sort_key =
+    //     old_sort_key.map(|v| v.to_columns().map(|v| v.to_string()).collect::<Vec<_>>());
 
     debug!(
         %object_store_id,
@@ -407,16 +411,20 @@ where
         partition_id = %ctx.partition_id(),
         partition_key = %ctx.partition_key(),
         ?new_sort_key,
-        ?old_sort_key,
+        // ?old_sort_key,
         "updating partition sort key"
     );
 
+    println!("===== old_sort_key_ids: {:?}", old_sort_key_ids);
+    println!("===== new_sort_key: {:?}", new_sort_key);
+
     let update_result = Backoff::new(&Default::default())
         .retry_with_backoff("cas_sort_key", || {
-            let old_sort_key = old_sort_key.clone();
+            // let old_sort_key = old_sort_key.clone();
             let old_sort_key_ids = old_sort_key_ids.clone();
             let new_sort_key_str = new_sort_key.to_columns().collect::<Vec<_>>();
             let new_sort_key_colids = columns.ids_for_names(&new_sort_key_str);
+            println!("===== new_sort_key_colids: {:?}", new_sort_key_colids);
             let catalog = Arc::clone(&worker_state.catalog);
             let ctx = &ctx;
             async move {
@@ -457,7 +465,7 @@ where
                             table = %ctx.table(),
                             partition_id = %ctx.partition_id(),
                             partition_key = %ctx.partition_key(),
-                            ?old_sort_key,
+                            // ?old_sort_key,
                             ?old_sort_key_ids,
                             // ?observed_sort_key,
                             ?observed_sort_key_ids,
@@ -487,7 +495,7 @@ where
                             table = %ctx.table(),
                             partition_id = %ctx.partition_id(),
                             partition_key = %ctx.partition_key(),
-                            ?old_sort_key,
+                            // ?old_sort_key,
                             ?old_sort_key_ids,
                             // ?observed_sort_key,
                             ?observed_sort_key_ids,
@@ -508,9 +516,12 @@ where
         .await
         .expect("retry forever");
 
+    println!("===== update_result: {:?}", update_result);
     match update_result {
         Ok(new_sort_key_ids) => {
             // Update the sort key in the Context & PartitionData.
+            println!("===== new_sort_key_ids: {:?}", new_sort_key_ids);
+            println!("===== new_sort_key: {:?}", new_sort_key);
             ctx.set_partition_sort_key(new_sort_key.clone(), new_sort_key_ids.clone())
                 .await;
 
@@ -522,7 +533,7 @@ where
                 table = %ctx.table(),
                 partition_id = %ctx.partition_id(),
                 partition_key = %ctx.partition_key(),
-                ?old_sort_key,
+                // ?old_sort_key,
                 ?old_sort_key_ids,
                 %new_sort_key,
                 ?new_sort_key_ids,

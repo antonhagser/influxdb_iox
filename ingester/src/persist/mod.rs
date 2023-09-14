@@ -508,6 +508,8 @@ mod tests {
             .find(|f| f.location == want_path)
             .expect("did not find final file in object storage");
 
+        print!("======== file.size: {:?}", file.size);
+        print!("======== file_size_bytes: {:?}", file_size_bytes);
         assert_eq!(file.size, *file_size_bytes as usize);
     }
 }

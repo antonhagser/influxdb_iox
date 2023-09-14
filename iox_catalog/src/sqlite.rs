@@ -817,7 +817,7 @@ struct PartitionPod {
     hash_id: Option<PartitionHashId>,
     table_id: TableId,
     partition_key: PartitionKey,
-    sort_key: Json<Vec<String>>,
+    // sort_key: Json<Vec<String>>,
     sort_key_ids: Option<Json<Vec<i64>>>,
     new_file_at: Option<Timestamp>,
 }
@@ -833,7 +833,7 @@ impl From<PartitionPod> for Partition {
             value.hash_id,
             value.table_id,
             value.partition_key,
-            value.sort_key.0,
+            // value.sort_key.0,
             sort_key_ids,
             value.new_file_at,
         )
@@ -850,24 +850,17 @@ impl PartitionRepo for SqliteTxn {
         let hash_id = PartitionHashId::new(table_id, &key);
 
         let v = sqlx::query_as::<_, PartitionPod>(
-            //             r#"
-            // INSERT INTO partition
-            //     (partition_key, shard_id, table_id, hash_id, sort_key, sort_key_ids)
-            // VALUES
-            //     ($1, $2, $3, $4, '[]', '[]')
-            // ON CONFLICT (table_id, partition_key)
-            // DO UPDATE SET partition_key = partition.partition_key
+                        r#"
+            INSERT INTO partition
+                (partition_key, shard_id, table_id, hash_id, sort_key, sort_key_ids)
+            VALUES
+                ($1, $2, $3, $4, '[]', '[]')
+            ON CONFLICT (table_id, partition_key)
+            DO UPDATE SET partition_key = partition.partition_key
+            RETURNING id, hash_id, table_id, partition_key, sort_key_ids, new_file_at;
+                    "#,
             // RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
             //         "#,
-            r#"
-INSERT INTO partition
-    (partition_key, shard_id, table_id, hash_id, sort_key_ids)
-VALUES
-    ($1, $2, $3, $4, '[]')
-ON CONFLICT (table_id, partition_key)
-DO UPDATE SET partition_key = partition.partition_key
-RETURNING id, hash_id, table_id, partition_key, sort_key_ids, new_file_at;
-        "#,
         )
         .bind(key) // $1
         .bind(TRANSITION_SHARD_ID) // $2
@@ -1890,24 +1883,17 @@ mod tests {
         // Create a partition record in the database that has `NULL` for its `hash_id`
         // value, which is what records existing before the migration adding that column will have.
         sqlx::query(
-            //             r#"
-            // INSERT INTO partition
-            //     (partition_key, shard_id, table_id, sort_key, sort_key_ids)
-            // VALUES
-            //     ($1, $2, $3, '[]', '[]')
-            // ON CONFLICT (table_id, partition_key)
-            // DO UPDATE SET partition_key = partition.partition_key
+                        r#"
+            INSERT INTO partition
+                (partition_key, shard_id, table_id, sort_key, sort_key_ids)
+            VALUES
+                ($1, $2, $3, '[]', '[]')
+            ON CONFLICT (table_id, partition_key)
+            DO UPDATE SET partition_key = partition.partition_key
+            RETURNING id, hash_id, table_id, partition_key, sort_key_ids, new_file_at;
+                    "#,
             // RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
             //         "#,
-            r#"
-INSERT INTO partition
-    (partition_key, shard_id, table_id, sort_key_ids)
-VALUES
-    ($1, $2, $3, '[]')
-ON CONFLICT (table_id, partition_key)
-DO UPDATE SET partition_key = partition.partition_key
-RETURNING id, hash_id, table_id, partition_key, sort_key_ids, new_file_at;
-        "#,
         )
         .bind(&key) // $1
         .bind(TRANSITION_SHARD_ID) // $2

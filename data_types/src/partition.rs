@@ -512,7 +512,7 @@ impl Partition {
         hash_id: Option<PartitionHashId>,
         table_id: TableId,
         partition_key: PartitionKey,
-        _sort_key: Vec<String>,
+        // _sort_key: Vec<String>,
         sort_key_ids: Option<SortedColumnSet>,
         new_file_at: Option<Timestamp>,
     ) -> Self {
