@@ -2,11 +2,11 @@ use crate::{
     namespace_cache::NamespaceCache,
     schema_validator::{SchemaError, SchemaValidator},
 };
-use data_types::NamespaceName;
+use data_types::{ColumnType, NamespaceName};
 use generated_types::influxdata::iox::schema::v1::*;
 use observability_deps::tracing::warn;
 use service_grpc_schema::schema_to_proto;
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 use tonic::{Request, Response, Status};
 
 /// Implementation of the gRPC schema service that is allowed to modify schemas
@@ -91,6 +91,8 @@ where
                 }
             })?;
 
+        let columns = convert_columns(columns)?;
+
         let _schema = self
             .schema_validator
             .upsert_schema(&namespace_name, &namespace_schema, &table, columns)
@@ -104,6 +106,30 @@ where
             "Modification operations are only supported by the router",
         ))
     }
+}
+
+fn convert_columns(columns: BTreeMap<String, i32>) -> Result<BTreeMap<String, ColumnType>, Status> {
+    columns
+        .into_iter()
+        .map(|(name, column_type)| {
+            let column_type: data_types::ColumnType =
+                column_schema::ColumnType::from_i32(column_type)
+                    .ok_or_else(|| {
+                        Status::invalid_argument(format!(
+                            "Column type {} is not a valid ColumnType",
+                            column_type
+                        ))
+                    })?
+                    .try_into()
+                    .map_err(|e| {
+                        Status::internal(format!(
+                            "Could not convert protobuf into a ColumnType: {e}"
+                        ))
+                    })?;
+
+            Ok((name, column_type))
+        })
+        .collect::<Result<BTreeMap<_, _>, Status>>()
 }
 
 #[cfg(test)]
