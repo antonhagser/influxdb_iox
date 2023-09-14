@@ -93,18 +93,24 @@ where
 
         let columns = convert_columns(columns)?;
 
-        let _schema = self
+        let maybe_schema = self
             .schema_validator
             .upsert_schema(&namespace_name, &namespace_schema, &table, columns)
             .await
             .map_err(|e| match e {
                 SchemaError::ServiceLimit { .. } => Status::failed_precondition(e.to_string()),
+                SchemaError::Conflict { .. } => Status::invalid_argument(e.to_string()),
                 _ => Status::internal(e.to_string()),
             })?;
 
-        Err(Status::unimplemented(
-            "Modification operations are only supported by the router",
-        ))
+        let schema_proto = match maybe_schema {
+            Some(s) => schema_to_proto(&s),
+            None => schema_to_proto(&namespace_schema),
+        };
+
+        Ok(Response::new(UpsertSchemaResponse {
+            schema: Some(schema_proto),
+        }))
     }
 }
 
@@ -281,6 +287,12 @@ mod tests {
         use super::*;
         use std::collections::BTreeMap;
 
+        async fn upsert_schema(grpc: &Service, request: UpsertSchemaRequest) -> NamespaceSchema {
+            let response = grpc.upsert_schema(Request::new(request)).await.unwrap();
+            let response = response.into_inner();
+            response.schema.unwrap()
+        }
+
         async fn upsert_schema_expecting_error(
             grpc: &Service,
             request: UpsertSchemaRequest,
@@ -311,6 +323,238 @@ mod tests {
                 "namespace namespace_does_not_exist not found",
             )
             .await;
+        }
+
+        #[tokio::test]
+        async fn new_table() {
+            let namespace = "namespace_schema_upsert_new";
+            let table = "table_schema_upsert_new";
+            let columns: BTreeMap<_, _> =
+                [("temperature".to_string(), ColumnType::I64 as i32)].into();
+
+            let grpc = service_setup(|repos| {
+                async {
+                    arbitrary_namespace(&mut *repos, namespace).await;
+                }
+                .boxed()
+            })
+            .await;
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: columns.clone(),
+                partition_template: None,
+            };
+
+            let schema = upsert_schema(&grpc, request).await;
+            assert_eq!(sorted_table_names(&schema), [table]);
+            assert_eq!(sorted_column_names(&schema, table), ["temperature", "time"]);
+        }
+
+        #[tokio::test]
+        async fn new_table_no_columns() {
+            let namespace = "namespace_schema_upsert_no_columns";
+            let table = "table_schema_upsert_no_columns";
+            let columns = BTreeMap::default();
+
+            let grpc = service_setup(|repos| {
+                async {
+                    arbitrary_namespace(&mut *repos, namespace).await;
+                }
+                .boxed()
+            })
+            .await;
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: columns.clone(),
+                partition_template: None,
+            };
+
+            let schema = upsert_schema(&grpc, request).await;
+            assert_eq!(sorted_table_names(&schema), [table]);
+            // The time column always gets created
+            assert_eq!(sorted_column_names(&schema, table), ["time"]);
+        }
+
+        #[tokio::test]
+        async fn existing_table() {
+            let namespace = "namespace_schema_upsert_existing";
+            let table = "table_schema_upsert_existing";
+
+            let existing_columns: BTreeMap<_, _> = [
+                ("name".to_string(), ColumnType::String),
+                ("time".to_string(), ColumnType::Time),
+            ]
+            .into();
+
+            let upsert_columns: BTreeMap<_, _> = [
+                // One new column
+                ("region".to_string(), ColumnType::Tag as i32),
+                // One existing column
+                ("name".to_string(), ColumnType::String as i32),
+                // no time column, but that always gets created
+            ]
+            .into();
+
+            let grpc = service_setup(|repos| {
+                let existing_columns = existing_columns.clone();
+                async move {
+                    let namespace = arbitrary_namespace(&mut *repos, namespace).await;
+
+                    let table = arbitrary_table(&mut *repos, table, &namespace).await;
+                    for (existing_name, existing_type) in existing_columns {
+                        repos
+                            .columns()
+                            .create_or_get(&existing_name, table.id, existing_type)
+                            .await
+                            .unwrap();
+                    }
+                }
+                .boxed()
+            })
+            .await;
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: upsert_columns.clone(),
+                partition_template: None,
+            };
+
+            let schema = upsert_schema(&grpc, request).await;
+            assert_eq!(sorted_table_names(&schema), [table]);
+            assert_eq!(
+                sorted_column_names(&schema, table),
+                ["name", "region", "time"]
+            );
+        }
+
+        #[tokio::test]
+        async fn conflicting_column_types_fails() {
+            let namespace = "namespace_schema_upsert_conflict";
+            let table = "table_schema_upsert_conflict";
+
+            let existing_columns: BTreeMap<_, _> = [
+                ("name".to_string(), ColumnType::String),
+                ("time".to_string(), ColumnType::Time),
+            ]
+            .into();
+
+            let upsert_columns: BTreeMap<_, _> = [
+                // New column
+                ("cpu".to_string(), ColumnType::Tag as i32),
+                // Same name as an existing column but a different type
+                ("name".to_string(), ColumnType::I64 as i32),
+                // Another new column
+                ("temperature".to_string(), ColumnType::F64 as i32),
+            ]
+            .into();
+
+            let grpc = service_setup(|repos| {
+                let existing_columns = existing_columns.clone();
+                async move {
+                    let namespace = arbitrary_namespace(&mut *repos, namespace).await;
+
+                    let table = arbitrary_table(&mut *repos, table, &namespace).await;
+                    for (existing_name, existing_type) in existing_columns {
+                        repos
+                            .columns()
+                            .create_or_get(&existing_name, table.id, existing_type)
+                            .await
+                            .unwrap();
+                    }
+                }
+                .boxed()
+            })
+            .await;
+
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: upsert_columns.clone(),
+                partition_template: None,
+            };
+
+            upsert_schema_expecting_error(
+                &grpc,
+                request,
+                Code::InvalidArgument,
+                "schema conflict: table table_schema_upsert_conflict, \
+                column name is type string but schema update has type i64",
+            )
+            .await;
+
+            let schema = get_schema(&grpc, namespace, Some(table)).await;
+            assert_eq!(sorted_table_names(&schema), [table]);
+            // No new columns should be added
+            let mut expected_columns: Vec<_> = existing_columns.keys().cloned().collect();
+            expected_columns.sort();
+            assert_eq!(sorted_column_names(&schema, table), expected_columns);
+        }
+
+        #[tokio::test]
+        async fn multiple_conflicting_column_types_returns_error_on_first_encountered() {
+            let namespace = "namespace_schema_upsert_two_conflicts";
+            let table = "table_schema_upsert_two_conflicts";
+
+            let existing_columns: BTreeMap<_, _> = [
+                ("name".to_string(), ColumnType::String),
+                ("cpu".to_string(), ColumnType::String),
+                ("time".to_string(), ColumnType::Time),
+            ]
+            .into();
+
+            let upsert_columns: BTreeMap<_, _> = [
+                // Same name as an existing column but a different type
+                ("cpu".to_string(), ColumnType::Tag as i32),
+                // Another column with the same name as an existing column but a different type
+                ("name".to_string(), ColumnType::I64 as i32),
+                // A new column
+                ("temperature".to_string(), ColumnType::F64 as i32),
+            ]
+            .into();
+
+            let grpc = service_setup(|repos| {
+                let existing_columns = existing_columns.clone();
+                async move {
+                    let namespace = arbitrary_namespace(&mut *repos, namespace).await;
+
+                    let table = arbitrary_table(&mut *repos, table, &namespace).await;
+                    for (existing_name, existing_type) in existing_columns {
+                        repos
+                            .columns()
+                            .create_or_get(&existing_name, table.id, existing_type)
+                            .await
+                            .unwrap();
+                    }
+                }
+                .boxed()
+            })
+            .await;
+            let request = UpsertSchemaRequest {
+                namespace: namespace.to_string(),
+                table: table.to_string(),
+                columns: upsert_columns.clone(),
+                partition_template: None,
+            };
+
+            upsert_schema_expecting_error(
+                &grpc,
+                request,
+                Code::InvalidArgument,
+                "schema conflict: table table_schema_upsert_two_conflicts, \
+                column cpu is type string but schema update has type tag",
+            )
+            .await;
+
+            let schema = get_schema(&grpc, namespace, Some(table)).await;
+            assert_eq!(sorted_table_names(&schema), [table]);
+            // No new columns should be added
+            let mut expected_columns: Vec<_> = existing_columns.keys().cloned().collect();
+            expected_columns.sort();
+            assert_eq!(sorted_column_names(&schema, table), expected_columns);
         }
 
         #[tokio::test]

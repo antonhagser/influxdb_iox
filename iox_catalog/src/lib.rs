@@ -19,7 +19,7 @@
 // Workaround for "unused crate" lint false positives.
 use workspace_hack as _;
 
-use crate::interface::{ColumnTypeMismatchSnafu, Error, RepoCollection, Result};
+use crate::interface::{Error, RepoCollection, Result};
 use data_types::{
     partition_template::TablePartitionTemplateOverride, ColumnType, NamespaceId, NamespaceSchema,
     Partition, TableSchema, TransitionPartitionId,
@@ -150,9 +150,7 @@ where
     let mut schema = Cow::Borrowed(schema);
 
     for (table_name, batch) in tables {
-        validate_mutable_batch(batch, table_name, &mut schema, repos)
-            .await
-            .map_err(|e| TableScopedError(table_name.to_string(), e))?;
+        validate_mutable_batch(batch, table_name, &mut schema, repos).await?;
     }
 
     match schema {
@@ -168,13 +166,13 @@ async fn validate_mutable_batch<R>(
     table_name: &str,
     schema: &mut Cow<'_, NamespaceSchema>,
     repos: &mut R,
-) -> Result<()>
+) -> Result<(), TableScopedError>
 where
     R: RepoCollection + ?Sized,
 {
     validate_and_insert_columns(
         mb.columns()
-            .map(|(name, col)| (name, col.influx_type().into())),
+            .map(|(name, col)| (name.as_str(), col.influx_type().into())),
         table_name,
         schema,
         repos,
@@ -182,14 +180,15 @@ where
     .await
 }
 
+/// Validate existence of a table and its columns in the catalog schema.
 // &mut Cow is used to avoid a copy, so allow it
 #[allow(clippy::ptr_arg)]
-async fn validate_and_insert_columns<R>(
-    columns: impl Iterator<Item = (&String, ColumnType)>,
+pub async fn validate_and_insert_columns<R>(
+    columns: impl Iterator<Item = (&str, ColumnType)> + Send,
     table_name: &str,
     schema: &mut Cow<'_, NamespaceSchema>,
     repos: &mut R,
-) -> Result<()>
+) -> Result<(), TableScopedError>
 where
     R: RepoCollection + ?Sized,
 {
@@ -214,8 +213,9 @@ where
                     "no table partition template; namespace partition template has been validated",
                 );
 
-            let table =
-                table_load_or_create(repos, schema.id, partition_template, table_name).await?;
+            let table = table_load_or_create(repos, schema.id, partition_template, table_name)
+                .await
+                .map_err(|e| TableScopedError(table_name.to_string(), e))?;
 
             assert!(schema
                 .to_mut()
@@ -241,7 +241,7 @@ where
         // If it does, validate it. If it does not exist, create it and insert
         // it into the cached schema.
 
-        match table.columns.get(name.as_str()) {
+        match table.columns.get(name) {
             Some(existing) if existing.column_type == column_type => {
                 // No action is needed as the column matches the existing column
                 // schema.
@@ -249,17 +249,19 @@ where
             Some(existing) => {
                 // The column schema and the column in the schema change are of
                 // different types.
-                return ColumnTypeMismatchSnafu {
-                    name,
-                    existing: existing.column_type,
-                    new: column_type,
-                }
-                .fail();
+                return Err(TableScopedError(
+                    table_name.to_string(),
+                    Error::ColumnTypeMismatch {
+                        name: name.to_string(),
+                        existing: existing.column_type,
+                        new: column_type,
+                    },
+                ));
             }
             None => {
                 // The column does not exist in the cache, add it to the column
                 // batch to be bulk inserted later.
-                let old = column_batch.insert(name.as_str(), column_type);
+                let old = column_batch.insert(name, column_type);
                 assert!(
                     old.is_none(),
                     "duplicate column name `{name}` in new column schema shouldn't be possible"
@@ -272,7 +274,8 @@ where
         repos
             .columns()
             .create_or_get_many_unchecked(table.id, column_batch)
-            .await?
+            .await
+            .map_err(|e| TableScopedError(table_name.to_string(), e))?
             .into_iter()
             .for_each(|c| table.to_mut().add_column(c));
     }

@@ -3,10 +3,11 @@
 
 use crate::namespace_cache::NamespaceCache;
 use data_types::{ColumnType, NamespaceName, NamespaceSchema};
-use iox_catalog::interface::Catalog;
+use iox_catalog::interface::{Catalog, Error as CatalogError};
 use metric::U64Counter;
 use observability_deps::tracing::*;
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
@@ -29,7 +30,7 @@ pub enum SchemaError {
     /// global catalog - the caller should inspect the inner error to determine
     /// the failure reason.
     #[error(transparent)]
-    UnexpectedCatalogError(iox_catalog::interface::Error),
+    UnexpectedCatalogError(CatalogError),
 }
 
 /// A [`SchemaValidator`] checks the schema of incoming writes against a
@@ -105,7 +106,7 @@ pub struct SchemaValidator<C> {
 
 impl<C> SchemaValidator<C>
 where
-    C: NamespaceCache<ReadError = iox_catalog::interface::Error> + 'static,
+    C: NamespaceCache<ReadError = CatalogError> + 'static,
 {
     /// Initialise a new [`SchemaValidator`] decorator, loading schemas from
     /// `catalog` and the provided `ns_cache`.
@@ -200,13 +201,13 @@ where
         &self,
         namespace: &NamespaceName<'static>,
         table_name: Option<&str>,
-    ) -> Result<Arc<NamespaceSchema>, iox_catalog::interface::Error> {
+    ) -> Result<Arc<NamespaceSchema>, CatalogError> {
         let namespace = self.cache.get_schema(namespace).await?;
 
         match table_name {
             Some(table) => {
                 let table_schema = namespace.tables.get(table).cloned().ok_or_else(|| {
-                    iox_catalog::interface::Error::TableNotFoundByName {
+                    CatalogError::TableNotFoundByName {
                         name: table.to_string(),
                     }
                 })?;
@@ -222,7 +223,8 @@ where
         }
     }
 
-    /// Validate and add the columns to the given namespace and table.
+    /// Validate and add the columns to the given namespace and table. Returns the schema if
+    /// modifcations were made; `None` otherwise.
     pub async fn upsert_schema(
         &self,
         namespace: &NamespaceName<'static>,
@@ -231,15 +233,39 @@ where
         // This is a `BTreeMap` to get a consistent ordering and consistent failures if multiple
         // columns have problems.
         upsert_columns: BTreeMap<String, ColumnType>,
-    ) -> Result<NamespaceSchema, SchemaError> {
+    ) -> Result<Option<NamespaceSchema>, SchemaError> {
         let column_names: BTreeSet<_> = upsert_columns.keys().map(|key| key.as_str()).collect();
+
         self.validate(
             namespace,
             namespace_schema,
             [(table_name, column_names)].into_iter(),
         )?;
 
-        unimplemented!()
+        // The (potentially updated) NamespaceSchema to return to the caller.
+        let mut schema = Cow::Borrowed(namespace_schema);
+        let mut repos = self.catalog.repositories().await;
+
+        iox_catalog::validate_and_insert_columns(
+            upsert_columns
+                .iter()
+                .map(|(name, column_type)| (name.as_str(), *column_type)),
+            table_name,
+            &mut schema,
+            repos.as_mut(),
+        )
+        .await
+        .map_err(|e| match e.err() {
+            CatalogError::ColumnTypeMismatch { .. } => SchemaError::Conflict(e),
+            CatalogError::ColumnCreateLimitError { .. }
+            | CatalogError::TableCreateLimitError { .. } => SchemaError::ServiceLimit(Box::new(e)),
+            _ => SchemaError::UnexpectedCatalogError(e.into_err()),
+        })?;
+
+        match schema {
+            Cow::Owned(v) => Ok(Some(v)),
+            Cow::Borrowed(_) => Ok(None),
+        }
     }
 }
 
