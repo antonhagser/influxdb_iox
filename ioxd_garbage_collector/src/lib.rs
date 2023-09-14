@@ -74,6 +74,7 @@ impl Server {
         }
     }
 
+    #[allow(clippy::never_loop)] // I don't think clippy understands the `select!`
     async fn worker_task(config: Config, mut shutdown_rx: broadcast::Receiver<()>) {
         const ONE_HOUR: u64 = 60 * 60;
         let mut minimum_next_start_time = time::interval(Duration::from_secs(ONE_HOUR));
