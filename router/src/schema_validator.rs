@@ -226,17 +226,16 @@ where
     pub async fn upsert_schema(
         &self,
         namespace: &NamespaceName<'static>,
+        namespace_schema: &NamespaceSchema,
         table_name: &str,
         // This is a `BTreeMap` to get a consistent ordering and consistent failures if multiple
         // columns have problems.
         upsert_columns: BTreeMap<String, i32>,
     ) -> Result<NamespaceSchema, SchemaError> {
-        let namespace_schema = self.get_schema(namespace, None).await.unwrap();
-
         let column_names: BTreeSet<_> = upsert_columns.keys().map(|key| key.as_str()).collect();
         self.validate(
             namespace,
-            &namespace_schema,
+            namespace_schema,
             [(table_name, column_names)].into_iter(),
         )?;
 

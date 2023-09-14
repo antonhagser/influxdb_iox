@@ -40,9 +40,19 @@ where
             .schema_validator
             .get_schema(&namespace_name, req.table.as_deref())
             .await
-            .map_err(|e| {
-                warn!(error=%e, %req.namespace, "failed to retrieve namespace schema");
-                Status::not_found(e.to_string())
+            .map_err(|e| match e {
+                iox_catalog::interface::Error::NamespaceNotFoundByName { .. } => {
+                    warn!(error=%e, %req.namespace, "failed to find namespace schema");
+                    Status::not_found(e.to_string())
+                }
+                iox_catalog::interface::Error::TableNotFoundByName { .. } => {
+                    warn!(error=%e, %req.namespace, ?req.table, "failed to find table schema");
+                    Status::not_found(e.to_string())
+                }
+                _ => {
+                    warn!(error=%e, %req.namespace, "failed to retrieve namespace schema");
+                    Status::internal(e.to_string())
+                }
             })?;
 
         Ok(Response::new(GetSchemaResponse {
@@ -66,9 +76,24 @@ where
         let namespace_name = NamespaceName::try_from(namespace.clone())
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
+        let namespace_schema = self
+            .schema_validator
+            .get_schema(&namespace_name, None)
+            .await
+            .map_err(|e| match e {
+                iox_catalog::interface::Error::NamespaceNotFoundByName { .. } => {
+                    warn!(error=%e, %namespace, "failed to find namespace schema");
+                    Status::not_found(e.to_string())
+                }
+                _ => {
+                    warn!(error=%e, %namespace, "failed to retrieve namespace schema");
+                    Status::internal(e.to_string())
+                }
+            })?;
+
         let _schema = self
             .schema_validator
-            .upsert_schema(&namespace_name, &table, columns)
+            .upsert_schema(&namespace_name, &namespace_schema, &table, columns)
             .await
             .map_err(|e| match e {
                 SchemaError::ServiceLimit { .. } => Status::failed_precondition(e.to_string()),
@@ -239,6 +264,27 @@ mod tests {
             let status = grpc.upsert_schema(Request::new(request)).await.unwrap_err();
             assert_eq!(status.code(), expected_code);
             assert_eq!(status.message(), expected_message);
+        }
+
+        #[tokio::test]
+        async fn nonexistent_namespace_fails() {
+            let grpc = service_setup(|_repos| async {}.boxed()).await;
+
+            // attempt to upsert into a nonexistent namespace, which fails
+            let request = UpsertSchemaRequest {
+                namespace: "namespace_does_not_exist".to_string(),
+                table: "arbitrary".to_string(),
+                columns: [("temperature".to_string(), ColumnType::I64 as i32)].into(),
+                partition_template: None,
+            };
+
+            upsert_schema_expecting_error(
+                &grpc,
+                request,
+                Code::NotFound,
+                "namespace namespace_does_not_exist not found",
+            )
+            .await;
         }
 
         #[tokio::test]
