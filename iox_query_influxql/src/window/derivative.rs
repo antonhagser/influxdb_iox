@@ -4,7 +4,6 @@ use arrow::datatypes::{DataType, TimeUnit};
 use datafusion::common::{Result, ScalarValue};
 use datafusion::logical_expr::{PartitionEvaluator, Signature, TypeSignature, Volatility};
 use once_cell::sync::Lazy;
-use std::borrow::Borrow;
 use std::sync::Arc;
 
 /// The name of the derivative window function.
