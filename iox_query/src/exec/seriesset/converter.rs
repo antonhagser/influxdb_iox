@@ -626,7 +626,7 @@ impl Eq for SortableSeries {}
 
 impl PartialOrd for SortableSeries {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.tag_vals.partial_cmp(&other.tag_vals)
+        Some(self.cmp(other))
     }
 }
 
