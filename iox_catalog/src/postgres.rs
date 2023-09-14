@@ -1175,9 +1175,9 @@ impl PartitionRepo for PostgresTxn {
         let v = sqlx::query_as::<_, Partition>(
             r#"
 INSERT INTO partition
-    (partition_key, shard_id, table_id, hash_id, sort_key, sort_key_ids)
+    (partition_key, shard_id, table_id, hash_id, sort_key_ids)
 VALUES
-    ( $1, $2, $3, $4, '{}', '{}')
+    ( $1, $2, $3, $4, '{}')
 ON CONFLICT ON CONSTRAINT partition_key_unique
 DO UPDATE SET partition_key = partition.partition_key
 RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
@@ -2252,9 +2252,9 @@ mod tests {
         sqlx::query(
             r#"
 INSERT INTO partition
-    (partition_key, shard_id, table_id, sort_key, sort_key_ids)
+    (partition_key, shard_id, table_id, sort_key_ids)
 VALUES
-    ( $1, $2, $3, '{}', '{}')
+    ( $1, $2, $3, '{}')
 ON CONFLICT ON CONSTRAINT partition_key_unique
 DO UPDATE SET partition_key = partition.partition_key
 RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file_at;
