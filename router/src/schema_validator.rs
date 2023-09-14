@@ -6,7 +6,10 @@ use data_types::{NamespaceName, NamespaceSchema};
 use iox_catalog::interface::Catalog;
 use metric::U64Counter;
 use observability_deps::tracing::*;
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 use thiserror::Error;
 
 /// Errors emitted during schema validation.
@@ -217,6 +220,27 @@ where
             }
             None => Ok(namespace),
         }
+    }
+
+    /// Validate and add the columns to the given namespace and table.
+    pub async fn upsert_schema(
+        &self,
+        namespace: &NamespaceName<'static>,
+        table_name: &str,
+        // This is a `BTreeMap` to get a consistent ordering and consistent failures if multiple
+        // columns have problems.
+        upsert_columns: BTreeMap<String, i32>,
+    ) -> Result<NamespaceSchema, SchemaError> {
+        let namespace_schema = self.get_schema(namespace, None).await.unwrap();
+
+        let column_names: BTreeSet<_> = upsert_columns.keys().map(|key| key.as_str()).collect();
+        self.validate(
+            namespace,
+            &namespace_schema,
+            [(table_name, column_names)].into_iter(),
+        )?;
+
+        unimplemented!()
     }
 }
 

@@ -329,7 +329,7 @@ pub mod test_helpers {
     use crate::RepoCollection;
     use data_types::{
         partition_template::TablePartitionTemplateOverride, ColumnId, ColumnSet, CompactionLevel,
-        Namespace, NamespaceName, ParquetFileParams, Partition, Table, Timestamp,
+        Namespace, NamespaceName, ParquetFileParams, Partition, Table, TableSchema, Timestamp,
     };
     use uuid::Uuid;
 
@@ -380,6 +380,23 @@ pub mod test_helpers {
             )
             .await
             .unwrap()
+    }
+
+    /// Load or create an arbitrary table schema in the same way that a write implicitly creates a
+    /// table, that is, with a time column.
+    pub async fn arbitrary_table_schema_load_or_create<R: RepoCollection + ?Sized>(
+        repos: &mut R,
+        name: &str,
+        namespace: &Namespace,
+    ) -> TableSchema {
+        crate::table_load_or_create(
+            repos,
+            namespace.id,
+            TablePartitionTemplateOverride::try_new(None, &namespace.partition_template).unwrap(),
+            name,
+        )
+        .await
+        .unwrap()
     }
 
     /// When the details of a Parquet file record don't matter, the test just needs *a* Parquet
