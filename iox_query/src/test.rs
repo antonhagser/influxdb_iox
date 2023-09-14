@@ -83,7 +83,7 @@ impl TestDatabase {
         let mut partitions = self.partitions.lock();
         let chunks = partitions
             .entry(partition_key.to_string())
-            .or_insert_with(BTreeMap::new);
+            .or_default();
         chunks.insert(chunk.id(), chunk);
         self
     }
