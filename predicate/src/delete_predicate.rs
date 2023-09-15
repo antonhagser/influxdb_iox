@@ -206,7 +206,7 @@ fn parse_time(input: &str) -> Result<i64> {
     // See examples here https://docs.influxdata.com/influxdb/v2.0/reference/cli/influx/delete/#delete-all-points-within-a-specified-time-frame
     let datetime_result = DateTime::parse_from_rfc3339(input);
     match datetime_result {
-        Ok(datetime) => Ok(datetime.timestamp_nanos()),
+        Ok(datetime) => Ok(datetime.timestamp_nanos_opt().unwrap()),
         Err(timestamp_err) => {
             // See if it is in nanosecond form
             let time_result = input.parse::<i64>();

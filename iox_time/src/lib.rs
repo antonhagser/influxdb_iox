@@ -378,12 +378,12 @@ mod test {
     #[test]
     fn test_mock_provider_now() {
         let provider = MockProvider::new(Time::from_timestamp_nanos(0));
-        assert_eq!(provider.now().timestamp_nanos_opt().unwrap(), 0);
-        assert_eq!(provider.now().timestamp_nanos_opt().unwrap(), 0);
+        assert_eq!(provider.now().timestamp_nanos(), 0);
+        assert_eq!(provider.now().timestamp_nanos(), 0);
 
         provider.set(Time::from_timestamp_nanos(12));
-        assert_eq!(provider.now().timestamp_nanos_opt().unwrap(), 12);
-        assert_eq!(provider.now().timestamp_nanos_opt().unwrap(), 12);
+        assert_eq!(provider.now().timestamp_nanos(), 12);
+        assert_eq!(provider.now().timestamp_nanos(), 12);
     }
 
     #[tokio::test]
@@ -550,7 +550,7 @@ mod test {
             );
 
             assert_eq!(
-                time.timestamp_nanos_opt().unwrap(),
+                time.timestamp_nanos(),
                 date_time.timestamp_nanos_opt().unwrap()
             );
             assert_eq!(time.timestamp_millis(), date_time.timestamp_millis());

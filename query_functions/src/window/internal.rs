@@ -386,7 +386,7 @@ mod tests {
     /// t: mustParseTime("1970-02-01T00:00:00Z"),
     fn must_parse_time(s: &str) -> i64 {
         let datetime = DateTime::parse_from_rfc3339(s).unwrap();
-        datetime.timestamp_nanos()
+        datetime.timestamp_nanos_opt().unwrap()
     }
 
     /// TestWindow_GetEarliestBounds
