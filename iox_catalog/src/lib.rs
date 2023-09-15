@@ -310,12 +310,12 @@ async fn table_load_or_create<R>(
 where
     R: RepoCollection + ?Sized,
 {
-    let table = match repos
+    let (table, created_columns) = match repos
         .tables()
         .get_by_namespace_and_name(namespace_id, table_name)
         .await?
     {
-        Some(table) => table,
+        Some(table) => (table, Vec::new()),
         None => {
             // There is a possibility of a race condition here, if another request has also
             // created this table after the `get_by_namespace_and_name` call but before
@@ -326,7 +326,7 @@ where
                 .create(table_name, partition_template, namespace_id)
                 .await;
             if let Err(Error::TableNameExists { .. }) = create_result {
-                repos
+                let table = repos
                     .tables()
                     .get_by_namespace_and_name(namespace_id, table_name)
                     // Propagate any `Err` returned by the catalog
@@ -336,7 +336,8 @@ where
                     .expect(
                         "Table creation failed because the table exists, so looking up the table \
                         should return `Some(table)`, but it returned `None`",
-                    )
+                    );
+                (table, Vec::new())
             } else {
                 create_result?
             }
@@ -344,13 +345,16 @@ where
     };
 
     let mut table = TableSchema::new_empty_from(&table);
+    // Add any columns that were created because they were in the partition template.
+    for column in created_columns {
+        table.add_column(column);
+    }
 
     // Always add a time column to all new tables.
     let time_col = repos
         .columns()
         .create_or_get(TIME_COLUMN, table.id, ColumnType::Time)
         .await?;
-
     table.add_column(time_col);
 
     Ok(table)
@@ -412,6 +416,7 @@ pub mod test_helpers {
             )
             .await
             .unwrap()
+            .0
     }
 
     /// Load or create an arbitrary table schema in the same way that a write implicitly creates a

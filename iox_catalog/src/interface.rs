@@ -311,14 +311,15 @@ pub trait NamespaceRepo: Send + Sync {
 /// Functions for working with tables in the catalog
 #[async_trait]
 pub trait TableRepo: Send + Sync {
-    /// Creates the table in the catalog. If one in the same namespace with the same name already
-    /// exists, an error is returned.
+    /// Creates the table in the catalog, along with any tag columns referenced in the partition
+    /// template, and returns both the `Table` and those `Column`s created. If a table in the same
+    /// namespace with the same name already exists, an error is returned.
     async fn create(
         &mut self,
         name: &str,
         partition_template: TablePartitionTemplateOverride,
         namespace_id: NamespaceId,
-    ) -> Result<Table>;
+    ) -> Result<(Table, Vec<Column>)>;
 
     /// get table by ID
     async fn get_by_id(&mut self, table_id: TableId) -> Result<Option<Table>>;
@@ -1325,7 +1326,7 @@ pub(crate) mod test_helpers {
             &namespace2.partition_template,
         )
         .unwrap();
-        let templated = repos
+        let (templated, table_columns) = repos
             .tables()
             .create(
                 "use_a_template",
@@ -1336,12 +1337,8 @@ pub(crate) mod test_helpers {
             .unwrap();
         assert_eq!(templated.partition_template, custom_table_template);
 
-        // Tag columns should be created for tags used in the template
-        let table_columns = repos
-            .columns()
-            .list_by_table_id(templated.id)
-            .await
-            .unwrap();
+        // Tag columns should be created for tags used in the template and returned from the create
+        // table call
         assert_eq!(table_columns.len(), 2);
         assert!(table_columns.iter().all(|c| c.is_tag()));
         let mut column_names: Vec<_> = table_columns.iter().map(|c| &c.name).collect();
@@ -1387,7 +1384,7 @@ pub(crate) mod test_helpers {
         let custom_table_template =
             TablePartitionTemplateOverride::try_new(None, &custom_namespace.partition_template)
                 .unwrap();
-        let table_templated_by_namespace = repos
+        let (table_templated_by_namespace, _columns) = repos
             .tables()
             .create(
                 "use_namespace_template",

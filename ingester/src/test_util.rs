@@ -437,6 +437,7 @@ pub(crate) async fn populate_catalog(
         .create(table, Default::default(), ns_id)
         .await
         .unwrap()
+        .0
         .id;
 
     (ns_id, table_id)
@@ -455,6 +456,7 @@ pub(crate) async fn populate_catalog_with_table_columns(
         .create(table, Default::default(), ns_id)
         .await
         .unwrap()
+        .0
         .id;
 
     let mut column_ids = Vec::with_capacity(columns.len());

@@ -231,7 +231,7 @@ impl TestNamespace {
     ) -> Arc<TestTable> {
         let mut repos = self.catalog.catalog.repositories().await;
 
-        let table = repos
+        let (table, _columns) = repos
             .tables()
             .create(
                 name,

@@ -308,6 +308,7 @@ where
                                 .create(table_name.as_str(), partition_template, namespace_id)
                                 .await
                                 .expect("table should create OK")
+                                .0
                                 .id;
                             (id, batch)
                         }

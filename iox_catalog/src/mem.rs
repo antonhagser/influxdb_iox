@@ -281,7 +281,7 @@ impl TableRepo for MemTxn {
         name: &str,
         partition_template: TablePartitionTemplateOverride,
         namespace_id: NamespaceId,
-    ) -> Result<Table> {
+    ) -> Result<(Table, Vec<Column>)> {
         let table = {
             let stage = self.stage();
 
@@ -343,13 +343,17 @@ impl TableRepo for MemTxn {
         // partition template parts. It's important this happens within the table creation
         // transaction so that there isn't a possibility of a concurrent write creating these
         // columns with an unsupported type.
-        for tag_name in table.partition_template.tag_names() {
-            self.columns()
-                .create_or_get(tag_name, table.id, ColumnType::Tag)
-                .await?;
+        let tag_names: Vec<_> = table.partition_template.tag_names().collect();
+        let mut columns = Vec::with_capacity(tag_names.len());
+        for tag_name in tag_names {
+            columns.push(
+                self.columns()
+                    .create_or_get(tag_name, table.id, ColumnType::Tag)
+                    .await?,
+            );
         }
 
-        Ok(table)
+        Ok((table, columns))
     }
 
     async fn get_by_id(&mut self, table_id: TableId) -> Result<Option<Table>> {

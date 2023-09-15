@@ -449,7 +449,7 @@ impl RemoteImporter {
         Ok(())
     }
 
-    /// Return the relevant Catlog [`Table`] for the specified parquet
+    /// Return the relevant Catalog [`Table`] for the specified parquet
     /// file.
     ///
     /// If the table does not yet exist, it is created, using any
@@ -480,7 +480,7 @@ impl RemoteImporter {
         let partition_template =
             TablePartitionTemplateOverride::try_new(custom_table_template, &namespace_template)?;
 
-        let table = tables
+        let (table, _columns) = tables
             .create(table_name, partition_template, namespace.id)
             .await?;
         Ok(table)

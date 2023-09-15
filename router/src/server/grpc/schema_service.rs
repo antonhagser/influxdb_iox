@@ -104,7 +104,7 @@ where
             ))
         })?;
 
-        let maybe_schema = self
+        let schema = self
             .schema_validator
             .upsert_schema(
                 &namespace_name,
@@ -120,13 +120,8 @@ where
                 _ => Status::internal(e.to_string()),
             })?;
 
-        let schema_proto = match maybe_schema {
-            Some(s) => schema_to_proto(&s),
-            None => schema_to_proto(&namespace_schema),
-        };
-
         Ok(Response::new(UpsertSchemaResponse {
-            schema: Some(schema_proto),
+            schema: Some(schema_to_proto(&schema)),
         }))
     }
 }
@@ -354,7 +349,9 @@ mod tests {
 
             let grpc = service_setup(|repos| {
                 async {
-                    arbitrary_namespace(&mut *repos, namespace).await;
+                    let namespace = arbitrary_namespace(&mut *repos, namespace).await;
+                    // This table should not be returned because we're not upserting it
+                    arbitrary_table(&mut *repos, "existing_table", &namespace).await;
                 }
                 .boxed()
             })

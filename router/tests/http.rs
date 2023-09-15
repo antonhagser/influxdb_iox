@@ -277,7 +277,7 @@ async fn test_write_propagate_ids() {
         .map(|t| {
             let catalog = Arc::clone(&catalog);
             async move {
-                let table = catalog
+                let (table, _columns) = catalog
                     .repositories()
                     .await
                     .tables()

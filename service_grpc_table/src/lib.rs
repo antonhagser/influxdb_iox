@@ -106,7 +106,7 @@ impl table_service_server::TableService for TableService {
                 ))
             })?;
 
-        let table = repos
+        let (table, _columns) = repos
             .tables()
             .create(
                 &name,

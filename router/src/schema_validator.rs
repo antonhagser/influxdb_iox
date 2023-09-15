@@ -225,8 +225,8 @@ where
         }
     }
 
-    /// Validate and add the columns to the given namespace and table. Returns the schema if
-    /// modifcations were made; `None` otherwise.
+    /// Validate and add the columns to the given namespace and table. Returns the schema for the
+    /// upserted table only, whether or not modifications were made.
     pub async fn upsert_schema(
         &self,
         namespace: &NamespaceName<'static>,
@@ -236,7 +236,7 @@ where
         // columns have problems.
         upsert_columns: BTreeMap<String, ColumnType>,
         partition_template: TablePartitionTemplateOverride,
-    ) -> Result<Option<NamespaceSchema>, SchemaError> {
+    ) -> Result<Arc<NamespaceSchema>, SchemaError> {
         let column_names: BTreeSet<_> = upsert_columns.keys().map(|key| key.as_str()).collect();
 
         self.validate(
@@ -266,10 +266,13 @@ where
             _ => SchemaError::UnexpectedCatalogError(e.into_err()),
         })?;
 
-        match schema {
-            Cow::Owned(v) => Ok(Some(v)),
-            Cow::Borrowed(_) => Ok(None),
+        if let Cow::Owned(modified_schema) = schema {
+            self.cache.put_schema(namespace.clone(), modified_schema);
         }
+
+        self.get_schema(namespace, Some(table_name))
+            .await
+            .map_err(SchemaError::UnexpectedCatalogError)
     }
 }
 

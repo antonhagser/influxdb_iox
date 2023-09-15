@@ -549,7 +549,7 @@ impl TableRepo for SqliteTxn {
         name: &str,
         partition_template: TablePartitionTemplateOverride,
         namespace_id: NamespaceId,
-    ) -> Result<Table> {
+    ) -> Result<(Table, Vec<Column>)> {
         let mut tx = self
             .inner
             .get_mut()
@@ -607,15 +607,20 @@ RETURNING *;
         // partition template parts. It's important this happens within the table creation
         // transaction so that there isn't a possibility of a concurrent write creating these
         // columns with an unsupported type.
-        for tag_name in table.partition_template.tag_names() {
-            insert_column_with_connection(&mut *tx, tag_name, table.id, ColumnType::Tag).await?;
+        let tag_names: Vec<_> = table.partition_template.tag_names().collect();
+        let mut columns = Vec::with_capacity(tag_names.len());
+        for tag_name in tag_names {
+            columns.push(
+                insert_column_with_connection(&mut *tx, tag_name, table.id, ColumnType::Tag)
+                    .await?,
+            );
         }
 
         tx.commit()
             .await
             .map_err(|source| Error::FailedToCommit { source })?;
 
-        Ok(table)
+        Ok((table, columns))
     }
 
     async fn get_by_id(&mut self, table_id: TableId) -> Result<Option<Table>> {
@@ -2350,7 +2355,7 @@ RETURNING *;
         //
         // When creating a table through the catalog functions *without* a custom table template in
         // a namespace *with* a custom partition template,
-        let table_no_template_with_namespace_template = repos
+        let (table_no_template_with_namespace_template, _columns) = repos
             .tables()
             .create(
                 "pomelo",
@@ -2402,7 +2407,7 @@ RETURNING *;
                 part: Some(proto::template_part::Part::TagValue("chemical".into())),
             }],
         };
-        let table_with_template_no_namespace_template = repos
+        let (table_with_template_no_namespace_template, _columns) = repos
             .tables()
             .create(
                 "tangerine",
@@ -2455,7 +2460,7 @@ RETURNING *;
                 part: Some(proto::template_part::Part::TagValue("vegetable".into())),
             }],
         };
-        let table_with_template_with_namespace_template = repos
+        let (table_with_template_with_namespace_template, _columns) = repos
             .tables()
             .create(
                 "nectarine",
@@ -2503,7 +2508,7 @@ RETURNING *;
         //
         // When creating a table through the catalog functions *without* a custom table template in
         // a namespace *without* a custom partition template,
-        let table_no_template_no_namespace_template = repos
+        let (table_no_template_no_namespace_template, _columns) = repos
             .tables()
             .create(
                 "grapefruit",
