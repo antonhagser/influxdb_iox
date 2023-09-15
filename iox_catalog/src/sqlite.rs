@@ -14,9 +14,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use data_types::{
-    partition_template::{
-        NamespacePartitionTemplateOverride, TablePartitionTemplateOverride, TemplatePart,
-    },
+    partition_template::{NamespacePartitionTemplateOverride, TablePartitionTemplateOverride},
     Column, ColumnId, ColumnSet, ColumnType, CompactionLevel, MaxColumnsPerTable, MaxTables,
     Namespace, NamespaceId, NamespaceName, NamespaceServiceProtectionLimitsOverride, ParquetFile,
     ParquetFileId, ParquetFileParams, Partition, PartitionHashId, PartitionId, PartitionKey,
@@ -609,11 +607,8 @@ RETURNING *;
         // partition template parts. It's important this happens within the table creation
         // transaction so that there isn't a possibility of a concurrent write creating these
         // columns with an unsupported type.
-        for template_part in table.partition_template.parts() {
-            if let TemplatePart::TagValue(tag_name) = template_part {
-                insert_column_with_connection(&mut *tx, tag_name, table.id, ColumnType::Tag)
-                    .await?;
-            }
+        for tag_name in table.partition_template.tag_names() {
+            insert_column_with_connection(&mut *tx, tag_name, table.id, ColumnType::Tag).await?;
         }
 
         tx.commit()

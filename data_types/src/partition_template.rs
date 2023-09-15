@@ -248,7 +248,7 @@ pub const ENCODED_PARTITION_KEY_CHARS: AsciiSet = CONTROLS
 
 /// Allocationless and protobufless access to the parts of a template needed to
 /// actually do partitioning.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(missing_docs)]
 pub enum TemplatePart<'a> {
     TagValue(&'a str),
@@ -328,6 +328,18 @@ impl TablePartitionTemplateOverride {
     #[allow(clippy::len_without_is_empty)] // Senseless - there must always be >0 parts.
     pub fn len(&self) -> usize {
         self.parts().count()
+    }
+
+    /// Iterate through the protobuf parts and lend out the names of tag columns used by the
+    /// template so that the tag columns can be created in the catalog.
+    pub fn tag_names(&self) -> impl Iterator<Item = &'_ str> {
+        self.parts().filter_map(|template_part| {
+            if let TemplatePart::TagValue(tag_name) = template_part {
+                Some(tag_name)
+            } else {
+                None
+            }
+        })
     }
 
     /// Iterate through the protobuf parts and lend out what the `mutable_batch` crate needs to
@@ -1353,6 +1365,21 @@ mod tests {
 
         assert_eq!(table_template.len(), 1);
         assert_eq!(table_template.0.unwrap().inner(), &custom_table_template);
+    }
+
+    #[test]
+    fn iterating_through_parts_or_tag_names() {
+        let parts = vec![
+            TemplatePart::TimeFormat("%Y"),
+            TemplatePart::TagValue("a"),
+            TemplatePart::TimeFormat("%m"),
+            TemplatePart::TagValue("b"),
+            TemplatePart::TimeFormat("%d"),
+        ];
+        let template = test_table_partition_override(parts.clone());
+
+        assert_eq!(template.parts().collect::<Vec<_>>(), parts);
+        assert_eq!(template.tag_names().collect::<Vec<_>>(), ["a", "b"]);
     }
 
     // The JSON representation of the partition template protobuf is stored in the database, so
