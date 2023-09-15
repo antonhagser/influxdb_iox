@@ -39,12 +39,14 @@ mod test {
                 .start_timestamp
                 .value()
                 .expect("start timestamp")
-                .timestamp_nanos();
+                .timestamp_nanos_opt()
+                .unwrap();
             let end_ts = $EXTRACTED
                 .end_timestamp
                 .value()
                 .expect("end timestamp")
-                .timestamp_nanos();
+                .timestamp_nanos_opt()
+                .unwrap();
 
             assert!(start_ts > 0, "start timestamp was non zero");
             assert!(end_ts > 0, "end timestamp was non zero");

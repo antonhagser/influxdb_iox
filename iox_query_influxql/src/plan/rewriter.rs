@@ -123,7 +123,7 @@ impl RewriteSelect {
         let time_range = match (interval, time_range.upper) {
             (Some(interval), None) if interval.duration > 0 => TimeRange {
                 lower: time_range.lower,
-                upper: Some(now.timestamp_nanos()),
+                upper: Some(now.timestamp_nanos_opt().unwrap()),
             },
             _ => time_range,
         };

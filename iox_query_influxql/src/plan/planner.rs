@@ -1844,7 +1844,7 @@ impl<'a> InfluxQLToLogicalPlan<'a> {
                 Literal::String(v) => Ok(lit(v)),
                 Literal::Boolean(v) => Ok(lit(*v)),
                 Literal::Timestamp(v) => Ok(lit(ScalarValue::TimestampNanosecond(
-                    Some(v.timestamp_nanos()),
+                    Some(v.timestamp_nanos_opt().unwrap()),
                     None,
                 ))),
                 Literal::Duration(v) => {
@@ -2210,9 +2210,9 @@ impl<'a> InfluxQLToLogicalPlan<'a> {
         let time_range = if time_range.is_unbounded() {
             TimeRange {
                 lower: Some(match cutoff {
-                    MetadataCutoff::Absolute(dt) => dt.timestamp_nanos(),
+                    MetadataCutoff::Absolute(dt) => dt.timestamp_nanos_opt().unwrap(),
                     MetadataCutoff::Relative(delta) => {
-                        start_time.timestamp_nanos() - delta.as_nanos() as i64
+                        start_time.timestamp_nanos_opt().unwrap() - delta.as_nanos() as i64
                     }
                 }),
                 upper: None,
