@@ -363,7 +363,7 @@ where
         converter.set_timestamp_base(write_info.precision.timestamp_base());
         let (batches, stats) = match converter.write_lp(body).and_then(|_| converter.finish()) {
             Ok(v) => v,
-            Err(e) if matches!(e, mutable_batch_lp::Error::EmptyPayload) => {
+            Err(mutable_batch_lp::Error::EmptyPayload) => {
                 debug!("nothing to write");
                 return Ok(());
             }
