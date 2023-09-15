@@ -22,10 +22,10 @@ impl From<Span> for jaeger::Span {
 
         let (start_time, duration) = match (s.start, s.end) {
             (Some(start), Some(end)) => (
-                start.timestamp_nanos() / 1000,
+                start.timestamp_nanos_opt().unwrap() / 1000,
                 (end - start).num_microseconds().expect("no overflow"),
             ),
-            (Some(start), _) => (start.timestamp_nanos() / 1000, 0),
+            (Some(start), _) => (start.timestamp_nanos_opt().unwrap() / 1000, 0),
             _ => (0, 0),
         };
 
@@ -100,7 +100,7 @@ impl From<Span> for jaeger::Span {
 impl From<SpanEvent> for jaeger::Log {
     fn from(event: SpanEvent) -> Self {
         Self {
-            timestamp: event.time.timestamp_nanos() / 1000,
+            timestamp: event.time.timestamp_nanos_opt().unwrap() / 1000,
             fields: vec![jaeger::Tag {
                 key: "event".to_string(),
                 v_type: jaeger::TagType::String,

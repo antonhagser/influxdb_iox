@@ -111,7 +111,7 @@ impl Time {
 
     /// Returns the number of non-leap-nanoseconds since January 1, 1970 UTC
     pub fn timestamp_nanos(&self) -> i64 {
-        self.0.timestamp_nanos()
+        self.0.timestamp_nanos_opt().unwrap()
     }
 
     /// Returns the number of seconds since January 1, 1970 UTC
@@ -378,12 +378,12 @@ mod test {
     #[test]
     fn test_mock_provider_now() {
         let provider = MockProvider::new(Time::from_timestamp_nanos(0));
-        assert_eq!(provider.now().timestamp_nanos(), 0);
-        assert_eq!(provider.now().timestamp_nanos(), 0);
+        assert_eq!(provider.now().timestamp_nanos_opt().unwrap(), 0);
+        assert_eq!(provider.now().timestamp_nanos_opt().unwrap(), 0);
 
         provider.set(Time::from_timestamp_nanos(12));
-        assert_eq!(provider.now().timestamp_nanos(), 12);
-        assert_eq!(provider.now().timestamp_nanos(), 12);
+        assert_eq!(provider.now().timestamp_nanos_opt().unwrap(), 12);
+        assert_eq!(provider.now().timestamp_nanos_opt().unwrap(), 12);
     }
 
     #[tokio::test]
@@ -539,7 +539,7 @@ mod test {
             );
             assert_eq!(
                 time,
-                Time::from_timestamp_nanos(date_time.timestamp_nanos())
+                Time::from_timestamp_nanos(date_time.timestamp_nanos_opt().unwrap())
             );
             assert_eq!(
                 Time::from_timestamp_millis(date_time.timestamp_millis()).unwrap(),
@@ -549,7 +549,10 @@ mod test {
                 )
             );
 
-            assert_eq!(time.timestamp_nanos(), date_time.timestamp_nanos());
+            assert_eq!(
+                time.timestamp_nanos_opt().unwrap(),
+                date_time.timestamp_nanos_opt().unwrap()
+            );
             assert_eq!(time.timestamp_millis(), date_time.timestamp_millis());
             assert_eq!(time.to_rfc3339(), date_time.to_rfc3339());
 

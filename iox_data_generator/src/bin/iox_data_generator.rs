@@ -143,8 +143,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start_datetime = datetime_nanoseconds(config.start.as_deref(), execution_start_time);
     let end_datetime = datetime_nanoseconds(config.end.as_deref(), execution_start_time);
 
-    let start_display = start_datetime.unwrap_or_else(|| execution_start_time.timestamp_nanos());
-    let end_display = end_datetime.unwrap_or_else(|| execution_start_time.timestamp_nanos());
+    let start_display =
+        start_datetime.unwrap_or_else(|| execution_start_time.timestamp_nanos_opt().unwrap());
+    let end_display =
+        end_datetime.unwrap_or_else(|| execution_start_time.timestamp_nanos_opt().unwrap());
 
     let continue_on = config.do_continue;
 
@@ -201,7 +203,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut points_writer_builder,
         start_datetime,
         end_datetime,
-        execution_start_time.timestamp_nanos(),
+        execution_start_time.timestamp_nanos_opt().unwrap(),
         continue_on,
         config.batch_size,
         config.print,
@@ -231,7 +233,7 @@ fn datetime_nanoseconds(arg: Option<&str>, now: DateTime<Local>) -> Option<i64> 
                 now - chrono_duration
             });
 
-        datetime.timestamp_nanos()
+        datetime.timestamp_nanos_opt().unwrap()
     })
 }
 
@@ -255,7 +257,9 @@ mod test {
     fn relative() {
         let fixed_now = Local::now();
         let ns = datetime_nanoseconds(Some("1hr"), fixed_now);
-        let expected = (fixed_now - chrono::Duration::hours(1)).timestamp_nanos();
+        let expected = (fixed_now - chrono::Duration::hours(1))
+            .timestamp_nanos_opt()
+            .unwrap();
         assert_eq!(ns, Some(expected));
     }
 }

@@ -199,7 +199,7 @@ fn to_timestamp_nanos_utc(
     let ndatetime = NaiveDateTime::new(ndate, ntime);
 
     let datetime = DateTime::<Utc>::from_naive_utc_and_offset(ndatetime, Utc);
-    datetime.timestamp_nanos()
+    datetime.timestamp_nanos_opt().unwrap()
 }
 
 impl Add<Duration> for i64 {
