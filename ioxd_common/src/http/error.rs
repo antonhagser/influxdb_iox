@@ -110,11 +110,11 @@ pub struct HttpApiError {
 
 /// JSON representation of [`HttpApiError`].
 #[derive(Serialize)]
-struct HttpApiErrorJson {
+struct HttpApiErrorJson<'a> {
     code: String,
-    message: String,
+    message: &'a String,
     #[serde(flatten)]
-    body: HashMap<String, serde_json::Value>,
+    body: &'a HashMap<String, serde_json::Value>,
 }
 
 impl HttpApiError {
@@ -128,22 +128,20 @@ impl HttpApiError {
     }
 
     /// Add body to error.
-    pub fn with_body(self, raw: HashMap<String, impl Into<serde_json::Value>>) -> Self {
-        let body: HashMap<String, serde_json::Value> =
-            raw.into_iter().map(|(k, v)| (k, v.into())).collect();
+    pub fn with_body(self, body: HashMap<String, serde_json::Value>) -> Self {
         Self { body, ..self }
     }
 
     /// Generate response body for this error.
     fn body(&self) -> Body {
-        let json = serde_json::json!(HttpApiErrorJson {
-            code: self.code.as_text().to_string(),
-            message: self.msg.clone(),
-            body: self.body.clone(),
-        })
-        .to_string();
-
-        Body::from(json)
+        Body::from(
+            serde_json::json!(HttpApiErrorJson {
+                code: self.code.as_text().to_string(),
+                message: &self.msg,
+                body: &self.body,
+            })
+            .to_string(),
+        )
     }
 
     /// Generate response for this error.

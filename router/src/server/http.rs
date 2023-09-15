@@ -2,7 +2,7 @@
 
 pub mod write;
 
-use std::{collections::HashMap as StdHashMap, str::Utf8Error, time::Instant};
+use std::{str::Utf8Error, time::Instant};
 
 use bytes::{Bytes, BytesMut};
 use futures::StreamExt;
@@ -132,24 +132,20 @@ impl Error {
         }
     }
 
-    /// Convert the error to an appropriate body to be returned to the end user.
-    ///
-    /// The body will be flattened into the payload. Therefore, an empty body
-    /// means no additional payload (beyond the code and message).
-    pub fn get_body(&self) -> StdHashMap<String, serde_json::Value> {
+    /// Return the line number of the first line that failed to parse,
+    /// if the error is a line protocol error.
+    pub fn get_line(&self) -> Option<usize> {
         match self {
             Self::ParseLineProtocol(mutable_batch_lp::Error::PerLine { lines }) => {
-                let mut values = StdHashMap::<String, serde_json::Value>::default();
                 let line = match lines.get(0) {
                     Some(LineError::LineProtocol { source: _, line })
                     | Some(LineError::TimestampOverflow { line })
                     | Some(LineError::Write { source: _, line }) => *line,
                     None => unreachable!("PerLine error must have at least one line"),
                 };
-                values.insert("line".into(), serde_json::Value::Number(line.into()));
-                values
+                Some(line)
             }
-            _ => StdHashMap::<String, serde_json::Value>::default(),
+            _ => None,
         }
     }
 }
