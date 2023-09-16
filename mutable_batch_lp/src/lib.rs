@@ -62,16 +62,6 @@ pub enum LineError {
     TimestampOverflow { line: usize },
 }
 
-macro_rules! break_or_continue {
-    ($predicate:expr $(,)?) => {
-        if $predicate {
-            break;
-        } else {
-            continue;
-        }
-    };
-}
-
 /// Result type for line protocol conversion
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -133,61 +123,72 @@ impl LinesConverter {
     ///     [`mutable_batch::writer::Error::TypeMismatch`]
     ///
     pub fn write_lp(&mut self, lines: &str) -> Result<()> {
-        // TODO: next PR will have this be configurable per env var.
-        let abort_on_line_error = true;
+        let mut errors_so_far = 0;
 
-        let mut errors: Vec<LineError> = Vec::with_capacity(MAXIMUM_RETURNED_ERRORS);
-        let mut add_error = |e: LineError| {
-            if errors.len() < MAXIMUM_RETURNED_ERRORS {
-                errors.push(e);
-            }
-            abort_on_line_error && errors.len() >= MAXIMUM_RETURNED_ERRORS
-        };
-
-        for (line_idx, maybe_line) in parse_lines(lines).enumerate() {
-            let mut line = match maybe_line.context(LineProtocolSnafu { line: line_idx + 1 }) {
-                Ok(line) => line,
-                Err(e) => {
-                    break_or_continue!(add_error(e));
+        let errors = parse_lines(lines)
+            .enumerate()
+            .map(|(line_idx, maybe_line)| {
+                maybe_line
+                    .context(LineProtocolSnafu { line: line_idx + 1 })
+                    .and_then(|line| self.rebase_timestamp(line, line_idx))
+                    .and_then(|line| self.add_line_to_batch(line, line_idx))
+            })
+            .take_while(|res| {
+                if res.is_err() {
+                    errors_so_far += 1;
+                    return errors_so_far < MAXIMUM_RETURNED_ERRORS;
                 }
-            };
-
-            if let Some(t) = line.timestamp.as_mut() {
-                let updated_timestamp = match t.checked_mul(self.timestamp_base) {
-                    Some(t) => t,
-                    None => {
-                        break_or_continue!(add_error(LineError::TimestampOverflow {
-                            line: line_idx + 1
-                        }))
-                    }
-                };
-                *t = updated_timestamp;
-            }
-
-            self.stats.num_lines += 1;
-            self.stats.num_fields += line.field_set.len();
-
-            let measurement = line.series.measurement.as_str();
-
-            let (_, batch) = self
-                .batches
-                .raw_entry_mut()
-                .from_key(measurement)
-                .or_insert_with(|| (measurement.to_string(), MutableBatch::new()));
-
-            // TODO: Reuse writer
-            let mut writer = Writer::new(batch, 1);
-            match write_line(&mut writer, &line, self.default_time)
-                .context(WriteSnafu { line: line_idx + 1 })
-            {
-                Ok(_) => writer.commit(),
-                Err(e) => break_or_continue!(add_error(e)),
-            };
-        }
+                true
+            })
+            .filter(Result::is_err)
+            .map(Result::unwrap_err)
+            .collect::<Vec<_>>();
 
         if !errors.is_empty() {
             return Err(Error::PerLine { lines: errors });
         }
+        Ok(())
+    }
+
+    fn rebase_timestamp<'a>(
+        &self,
+        mut line: ParsedLine<'a>,
+        line_idx: usize,
+    ) -> Result<ParsedLine<'a>, LineError> {
+        if let Some(t) = line.timestamp.as_mut() {
+            let updated_timestamp = match t.checked_mul(self.timestamp_base) {
+                Some(t) => t,
+                None => return Err(LineError::TimestampOverflow { line: line_idx + 1 }),
+            };
+            *t = updated_timestamp;
+        }
+        Ok(line)
+    }
+
+    fn add_line_to_batch(
+        &mut self,
+        line: ParsedLine<'_>,
+        line_idx: usize,
+    ) -> Result<(), LineError> {
+        self.stats.num_lines += 1;
+        self.stats.num_fields += line.field_set.len();
+
+        let measurement = line.series.measurement.as_str();
+
+        let (_, batch) = self
+            .batches
+            .raw_entry_mut()
+            .from_key(measurement)
+            .or_insert_with(|| (measurement.to_string(), MutableBatch::new()));
+
+        // TODO: Reuse writer
+        let mut writer = Writer::new(batch, 1);
+        match write_line(&mut writer, &line, self.default_time)
+            .context(WriteSnafu { line: line_idx + 1 })
+        {
+            Ok(_) => writer.commit(),
+            Err(e) => return Err(e),
+        };
         Ok(())
     }
 
