@@ -37,7 +37,7 @@ pub enum Error {
         std::cmp::min(MAXIMUM_RETURNED_ERRORS, lines.len()),
         if lines.len() > MAXIMUM_RETURNED_ERRORS { "+" } else { "" },
         if lines.len() > 1 { "s" } else { "" },
-        lines.iter().map(|line| line.to_string()).collect::<Vec<String>>().join("\n")
+        itertools::join(lines.iter(), "\n")
     ))]
     PerLine { lines: Vec<LineError> },
 
