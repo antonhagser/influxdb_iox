@@ -1,7 +1,6 @@
 use hyper::{Body, Response, StatusCode};
 use observability_deps::tracing::warn;
 use serde::Serialize;
-use std::collections::HashMap;
 
 /// Constants used in API error codes.
 ///
@@ -93,28 +92,27 @@ impl From<StatusCode> for HttpApiErrorCode {
     }
 }
 
+impl Serialize for HttpApiErrorCode {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_text())
+    }
+}
+
 /// Error that is compatible with the Influxdata Cloud 2 HTTP API.
 ///
 /// See <https://docs.influxdata.com/influxdb/v2.1/api/#operation/PostWrite>.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct HttpApiError {
     /// Machine-readable error code.
     code: HttpApiErrorCode,
 
     /// Human-readable message.
+    #[serde(rename = "message")]
     msg: String,
 
-    /// Optional error body.
-    body: HashMap<String, serde_json::Value>,
-}
-
-/// JSON representation of [`HttpApiError`].
-#[derive(Serialize)]
-struct HttpApiErrorJson<'a> {
-    code: String,
-    message: &'a String,
-    #[serde(flatten)]
-    body: &'a HashMap<String, serde_json::Value>,
+    /// Optional error line (for line protocol errors).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line: Option<usize>,
 }
 
 impl HttpApiError {
@@ -123,25 +121,18 @@ impl HttpApiError {
         Self {
             code: code.into(),
             msg: msg.into(),
-            body: Default::default(),
+            line: None,
         }
     }
 
     /// Add body to error.
-    pub fn with_body(self, body: HashMap<String, serde_json::Value>) -> Self {
-        Self { body, ..self }
+    pub fn with_line(self, line: Option<usize>) -> Self {
+        Self { line, ..self }
     }
 
     /// Generate response body for this error.
     fn body(&self) -> Body {
-        Body::from(
-            serde_json::json!(HttpApiErrorJson {
-                code: self.code.as_text().to_string(),
-                message: &self.msg,
-                body: &self.body,
-            })
-            .to_string(),
-        )
+        Body::from(serde_json::json!(self).to_string())
     }
 
     /// Generate response for this error.

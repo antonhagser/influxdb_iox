@@ -3200,7 +3200,6 @@ dependencies = [
  "mutable_batch",
  "object_store",
  "router",
- "serde_json",
  "thiserror",
  "tokio",
  "tokio-util",
