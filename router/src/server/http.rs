@@ -1420,7 +1420,7 @@ mod tests {
                 }]
             }),
             "failed to parse line protocol: \
-            errors encountered on 1 line:\
+            errors encountered on line(s):\
             \nerror parsing line 42 (1-based): No fields were provided",
         ),
 
@@ -1434,7 +1434,7 @@ mod tests {
                 }]
             }),
             "failed to parse line protocol: \
-            errors encountered on 1 line:\
+            errors encountered on line(s):\
             \nerror writing line 42 (1-based): the tag 'host' is specified more than once with conflicting values",
         ),
 
@@ -1448,7 +1448,7 @@ mod tests {
                 }]
             }),
             "failed to parse line protocol: \
-            errors encountered on 1 line:\
+            errors encountered on line(s):\
             \nerror writing line 42 (1-based): the field 'bananas' is specified more than once with conflicting types",
         ),
 
@@ -1462,7 +1462,7 @@ mod tests {
                 lines: vec![mutable_batch_lp::LineError::TimestampOverflow { line: 42 }]
             }),
             "failed to parse line protocol: \
-            errors encountered on 1 line:\
+            errors encountered on line(s):\
             \ntimestamp overflows i64 on line 42 (1-based)",
         ),
 
@@ -1483,7 +1483,7 @@ mod tests {
                 ]
             }),
             "failed to parse line protocol: \
-            errors encountered on 3 lines:\
+            errors encountered on line(s):\
             \nerror parsing line 42 (1-based): No fields were provided\
             \ntimestamp overflows i64 on line 43 (1-based)\
             \nerror writing line 44 (1-based): the field 'bananas' is specified more than once with conflicting types",

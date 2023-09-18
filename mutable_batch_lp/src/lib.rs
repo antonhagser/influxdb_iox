@@ -33,10 +33,7 @@ const MAXIMUM_RETURNED_ERRORS: usize = 100;
 #[allow(missing_docs)]
 pub enum Error {
     #[snafu(display(
-        "errors encountered on {}{} line{}:\n{}",
-        std::cmp::min(MAXIMUM_RETURNED_ERRORS, lines.len()),
-        if lines.len() > MAXIMUM_RETURNED_ERRORS { "+" } else { "" },
-        if lines.len() > 1 { "s" } else { "" },
+        "errors encountered on line(s):\n{}",
         itertools::join(lines.iter(), "\n")
     ))]
     PerLine { lines: Vec<LineError> },
