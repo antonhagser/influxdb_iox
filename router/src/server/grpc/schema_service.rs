@@ -117,7 +117,7 @@ where
             .map_err(|e| match e {
                 SchemaError::ServiceLimit { .. } => Status::failed_precondition(e.to_string()),
                 SchemaError::Conflict { .. } => Status::invalid_argument(e.to_string()),
-                _ => Status::internal(e.to_string()),
+                SchemaError::UnexpectedCatalogError { .. } => Status::internal(e.to_string()),
             })?;
 
         Ok(Response::new(UpsertSchemaResponse {
