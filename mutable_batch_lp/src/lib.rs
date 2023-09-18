@@ -123,25 +123,16 @@ impl LinesConverter {
     ///     [`mutable_batch::writer::Error::TypeMismatch`]
     ///
     pub fn write_lp(&mut self, lines: &str) -> Result<()> {
-        let mut errors_so_far = 0;
-
         let errors = parse_lines(lines)
             .enumerate()
-            .map(|(line_idx, maybe_line)| {
+            .filter_map(|(line_idx, maybe_line)| {
                 maybe_line
                     .context(LineProtocolSnafu { line: line_idx + 1 })
                     .and_then(|line| self.rebase_timestamp(line, line_idx))
                     .and_then(|line| self.add_line_to_batch(line, line_idx))
+                    .err()
             })
-            .take_while(|res| {
-                if res.is_err() {
-                    errors_so_far += 1;
-                    return errors_so_far < MAXIMUM_RETURNED_ERRORS;
-                }
-                true
-            })
-            .filter(Result::is_err)
-            .map(Result::unwrap_err)
+            .take(MAXIMUM_RETURNED_ERRORS)
             .collect::<Vec<_>>();
 
         if !errors.is_empty() {

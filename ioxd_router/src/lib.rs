@@ -218,7 +218,7 @@ impl std::error::Error for IoxHttpErrorAdaptor {}
 impl HttpApiErrorSource for IoxHttpErrorAdaptor {
     fn to_http_api_error(&self) -> HttpApiError {
         let mut body = std::collections::HashMap::<String, serde_json::Value>::new();
-        if let Some(line) = self.0.get_line() {
+        if let Some(line) = self.0.get_parse_error_line_index() {
             body.insert("line".into(), line.into());
         };
 

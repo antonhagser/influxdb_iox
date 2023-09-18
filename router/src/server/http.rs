@@ -134,7 +134,9 @@ impl Error {
 
     /// Return the line number of the first line that failed to parse,
     /// if the error is a line protocol error.
-    pub fn get_line(&self) -> Option<usize> {
+    ///
+    /// Line number is index 1 based.
+    pub fn get_parse_error_line_index(&self) -> Option<usize> {
         match self {
             Self::ParseLineProtocol(mutable_batch_lp::Error::PerLine { lines }) => {
                 let line = match lines.get(0) {
