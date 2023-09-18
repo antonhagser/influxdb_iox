@@ -57,7 +57,7 @@ where
             )
         });
 
-        self.validate(namespace, &namespace_schema, column_names_by_table)?;
+        self.validate_service_limits(namespace, &namespace_schema, column_names_by_table)?;
 
         let mut repos = self.catalog.repositories().await;
 
@@ -244,21 +244,25 @@ mod tests {
             let column_names_by_table =
                 [("dragonfruit", BTreeSet::from(["val", "time"]))].into_iter();
             assert!(handler1
-                .validate(&NAMESPACE, &schema, column_names_by_table.clone())
+                .validate_service_limits(&NAMESPACE, &schema, column_names_by_table.clone())
                 .is_ok());
             assert!(handler2
-                .validate(&NAMESPACE, &schema, column_names_by_table)
+                .validate_service_limits(&NAMESPACE, &schema, column_names_by_table)
                 .is_ok());
 
             // Adding more columns over the limit is an error
             let column_names_by_table =
                 [("dragonfruit", BTreeSet::from(["i_got_music", "time"]))].into_iter();
             assert_matches!(
-                handler1.validate(&NAMESPACE, &schema, column_names_by_table.clone()),
+                handler1.validate_service_limits(
+                    &NAMESPACE,
+                    &schema,
+                    column_names_by_table.clone()
+                ),
                 Err(SchemaError::ServiceLimit { .. })
             );
             assert_matches!(
-                handler2.validate(&NAMESPACE, &schema, column_names_by_table),
+                handler2.validate_service_limits(&NAMESPACE, &schema, column_names_by_table),
                 Err(SchemaError::ServiceLimit { .. })
             );
         }

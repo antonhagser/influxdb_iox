@@ -136,19 +136,16 @@ where
         }
     }
 
-    /// Validate the schema changes specified.
+    /// Validate the schema changes specified are within the system's service limits.
     ///
     /// # Errors
-    ///
-    /// If the schema validation fails due to a schema conflict in the request,
-    /// [`SchemaError::Conflict`] is returned.
     ///
     /// If the schema validation fails due to a service limit being reached,
     /// [`SchemaError::ServiceLimit`] is returned.
     ///
     /// A request that fails validation on one or more tables fails the request
     /// as a whole - calling this method has "all or nothing" semantics.
-    pub fn validate<'a>(
+    pub fn validate_service_limits<'a>(
         &'a self,
         namespace: &'a NamespaceName<'static>,
         namespace_schema: &'a NamespaceSchema,
@@ -239,7 +236,7 @@ where
     ) -> Result<Arc<NamespaceSchema>, SchemaError> {
         let column_names: BTreeSet<_> = upsert_columns.keys().map(|key| key.as_str()).collect();
 
-        self.validate(
+        self.validate_service_limits(
             namespace,
             namespace_schema,
             [(table_name, column_names)].into_iter(),
@@ -320,6 +317,9 @@ pub enum CachedServiceProtectionLimit {
 /// Evaluate the number of columns/tables that would result if the schema changes were
 /// applied to `schema`, and ensure the column/table count does not exceed the
 /// maximum permitted amount cached in the [`NamespaceSchema`].
+///
+/// Mostly extracted for ease of testing this logic without needing to create a full
+/// `SchemaValidator`.
 fn validate_schema_limits<'a>(
     column_names_by_table: impl Iterator<Item = (&'a str, BTreeSet<&'a str>)>,
     schema: &'a NamespaceSchema,
