@@ -158,14 +158,7 @@ where
             .expect("no table partition template; namespace partition template has been validated");
 
     for (table_name, batch) in tables {
-        validate_mutable_batch(
-            batch,
-            table_name,
-            partition_template.clone(),
-            &mut schema,
-            repos,
-        )
-        .await?;
+        validate_mutable_batch(batch, table_name, &partition_template, &mut schema, repos).await?;
     }
 
     match schema {
@@ -179,7 +172,7 @@ where
 async fn validate_mutable_batch<R>(
     mb: &MutableBatch,
     table_name: &str,
-    partition_template: TablePartitionTemplateOverride,
+    partition_template: &TablePartitionTemplateOverride,
     schema: &mut Cow<'_, NamespaceSchema>,
     repos: &mut R,
 ) -> Result<(), TableScopedError>
@@ -203,7 +196,7 @@ where
 pub async fn validate_and_insert_columns<R>(
     columns: impl Iterator<Item = (&str, ColumnType)> + Send,
     table_name: &str,
-    partition_template: TablePartitionTemplateOverride,
+    partition_template: &TablePartitionTemplateOverride,
     schema: &mut Cow<'_, NamespaceSchema>,
     repos: &mut R,
 ) -> Result<(), TableScopedError>
@@ -304,7 +297,7 @@ where
 async fn table_load_or_create<R>(
     repos: &mut R,
     namespace_id: NamespaceId,
-    partition_template: TablePartitionTemplateOverride,
+    partition_template: &TablePartitionTemplateOverride,
     table_name: &str,
 ) -> Result<TableSchema>
 where
@@ -323,7 +316,7 @@ where
             // from the catalog for the record that should now exist.
             let create_result = repos
                 .tables()
-                .create(table_name, partition_template, namespace_id)
+                .create(table_name, partition_template.clone(), namespace_id)
                 .await;
             if let Err(Error::TableNameExists { .. }) = create_result {
                 let table = repos
@@ -429,7 +422,7 @@ pub mod test_helpers {
         crate::table_load_or_create(
             repos,
             namespace.id,
-            TablePartitionTemplateOverride::try_new(None, &namespace.partition_template).unwrap(),
+            &TablePartitionTemplateOverride::try_new(None, &namespace.partition_template).unwrap(),
             name,
         )
         .await

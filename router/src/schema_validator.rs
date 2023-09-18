@@ -254,7 +254,7 @@ where
                 .iter()
                 .map(|(name, column_type)| (name.as_str(), *column_type)),
             table_name,
-            partition_template,
+            &partition_template,
             &mut schema,
             repos.as_mut(),
         )
