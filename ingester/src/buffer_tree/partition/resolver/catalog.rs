@@ -120,7 +120,7 @@ impl PartitionProvider for CatalogPartitionResolver {
             namespace_name,
             table_id,
             table,
-            SortKeyState::Provided(sort_key, p_sort_key_ids.cloned()),
+            SortKeyState::Provided(sort_key, p_sort_key_ids),
             partition_counter,
         )))
     }
