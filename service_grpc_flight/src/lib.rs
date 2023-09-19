@@ -595,6 +595,7 @@ where
         &self,
         request: Request<Ticket>,
     ) -> Result<Response<Self::DoGetStream>, tonic::Status> {
+        print!("chunchun do_get\n");
         let external_span_ctx: Option<RequestLogContext> = request.extensions().get().cloned();
         let trace = external_span_ctx.format_jaeger();
         let span_ctx: Option<SpanContext> = request.extensions().get().cloned();
@@ -667,16 +668,21 @@ where
         &self,
         request: Request<Streaming<HandshakeRequest>>,
     ) -> Result<Response<Self::HandshakeStream>, tonic::Status> {
+        println!("chunchun handshake");
+
         // Note that the JDBC driver doesn't send the iox-namespace-name metadata
         // in the handshake request, even if configured in the JDBC URL,
         // so we cannot actually do any access checking here.
         let authz_token = get_flight_authz(request.metadata());
 
+        print!("chunchun handshake - request: {request:?}\n");
         let request = request
             .into_inner()
             .message()
             .await?
             .context(InvalidHandshakeSnafu)?;
+
+        // let request = request.into_inner().message().await?;
 
         // The handshake method is used for authentication. IOx ignores the
         // username and returns the password itself as the token to use for
@@ -691,16 +697,28 @@ where
             .transpose()
             .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
 
+        print!("response header: {response_header:?}\n");
+        // let response = match request {
+        //     Some(request) => HandshakeResponse {
+        //         protocol_version: request.protocol_version,
+        //         payload: request.payload,
+        //     },
+        //     None => HandshakeResponse::default(),
+        // };
         let response = HandshakeResponse {
             protocol_version: request.protocol_version,
             payload: request.payload,
         };
+        // let response = HandshakeResponse {
+        //     protocol_version: 0,
+        //     payload: Bytes::new(),
+        // };
         let output = futures::stream::iter(std::iter::once(Ok(response)));
         let mut response = Response::new(Box::pin(output) as Self::HandshakeStream);
         if let Some(header) = response_header {
             response.metadata_mut().insert("authorization", header);
         }
-        print!("chunchun service_grpc_flight handshake\n");
+        print!("chunchun service_grpc_flight handshake - OK response\n");
         Ok(response)
     }
 
@@ -722,6 +740,7 @@ where
         &self,
         request: Request<FlightDescriptor>,
     ) -> Result<Response<FlightInfo>, tonic::Status> {
+        print!("chunchun get_flight_info\n");
         let external_span_ctx: Option<RequestLogContext> = request.extensions().get().cloned();
         let span_ctx: Option<SpanContext> = request.extensions().get().cloned();
         let trace = external_span_ctx.format_jaeger();
