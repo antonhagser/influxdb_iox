@@ -20,7 +20,10 @@ use crate::{
 impl<C> DmlHandler for SchemaValidator<C>
 where
     // The handler expects the cache to read from the catalog if necessary.
-    C: NamespaceCache<ReadError = iox_catalog::interface::Error> + 'static,
+    C: NamespaceCache<
+            NamespaceReadError = iox_catalog::interface::Error,
+            TableReadError = iox_catalog::interface::Error,
+        > + 'static,
 {
     type WriteError = SchemaError;
 

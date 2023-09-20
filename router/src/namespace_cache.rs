@@ -22,13 +22,25 @@ pub trait NamespaceCache: Debug + Send + Sync {
     /// The type of error a [`NamespaceCache`] implementation produces
     /// when unable to read the [`NamespaceSchema`] requested from the
     /// cache.
-    type ReadError: Error + Send;
+    type NamespaceReadError: Error + Send;
+    /// The type of error a [`NamespaceCache`] implementation produces
+    /// when unable to read the [`NamespaceSchema`] containing only the
+    /// [`TableSchema`] requested from the cache.
+    type TableReadError: Error + Send;
 
     /// Return the [`NamespaceSchema`] for `namespace`.
     async fn get_schema(
         &self,
         namespace: &NamespaceName<'static>,
-    ) -> Result<Arc<NamespaceSchema>, Self::ReadError>;
+    ) -> Result<Arc<NamespaceSchema>, Self::NamespaceReadError>;
+
+    /// Return the [`NamespaceSchema`] for `namespace` but only include the [`TableSchema`] for
+    /// `table`.
+    async fn get_table_schema(
+        &self,
+        namespace: &NamespaceName<'static>,
+        table: &str,
+    ) -> Result<Arc<NamespaceSchema>, Self::TableReadError>;
 
     /// Place `schema` in the cache, merging the set of tables and their columns
     /// with the existing entry for `namespace`, if any.
@@ -48,13 +60,22 @@ impl<T> NamespaceCache for Arc<T>
 where
     T: NamespaceCache,
 {
-    type ReadError = T::ReadError;
+    type NamespaceReadError = T::NamespaceReadError;
+    type TableReadError = T::TableReadError;
 
     async fn get_schema(
         &self,
         namespace: &NamespaceName<'static>,
-    ) -> Result<Arc<NamespaceSchema>, Self::ReadError> {
+    ) -> Result<Arc<NamespaceSchema>, Self::NamespaceReadError> {
         T::get_schema(self, namespace).await
+    }
+
+    async fn get_table_schema(
+        &self,
+        namespace: &NamespaceName<'static>,
+        table: &str,
+    ) -> Result<Arc<NamespaceSchema>, Self::TableReadError> {
+        T::get_table_schema(self, namespace, table).await
     }
 
     fn put_schema(
@@ -95,21 +116,34 @@ pub enum MaybeLayer<T, U> {
 }
 
 #[async_trait]
-impl<T, U, E> NamespaceCache for MaybeLayer<T, U>
+impl<T, U, E, F> NamespaceCache for MaybeLayer<T, U>
 where
-    T: NamespaceCache<ReadError = E>,
-    U: NamespaceCache<ReadError = E>,
+    T: NamespaceCache<NamespaceReadError = E, TableReadError = F>,
+    U: NamespaceCache<NamespaceReadError = E, TableReadError = F>,
     E: Error + Send,
+    F: Error + Send,
 {
-    type ReadError = E;
+    type NamespaceReadError = E;
+    type TableReadError = F;
 
     async fn get_schema(
         &self,
         namespace: &NamespaceName<'static>,
-    ) -> Result<Arc<NamespaceSchema>, Self::ReadError> {
+    ) -> Result<Arc<NamespaceSchema>, Self::NamespaceReadError> {
         match self {
             MaybeLayer::With(v) => v.get_schema(namespace).await,
             MaybeLayer::Without(v) => v.get_schema(namespace).await,
+        }
+    }
+
+    async fn get_table_schema(
+        &self,
+        namespace: &NamespaceName<'static>,
+        table: &str,
+    ) -> Result<Arc<NamespaceSchema>, Self::TableReadError> {
+        match self {
+            MaybeLayer::With(v) => v.get_table_schema(namespace, table).await,
+            MaybeLayer::Without(v) => v.get_table_schema(namespace, table).await,
         }
     }
 

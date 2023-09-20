@@ -21,7 +21,10 @@ impl<C> SchemaService<C> {
 #[tonic::async_trait]
 impl<C> schema_service_server::SchemaService for SchemaService<C>
 where
-    C: NamespaceCache<ReadError = iox_catalog::interface::Error> + 'static,
+    C: NamespaceCache<
+            NamespaceReadError = iox_catalog::interface::Error,
+            TableReadError = iox_catalog::interface::Error,
+        > + 'static,
 {
     async fn get_schema(
         &self,
@@ -32,14 +35,25 @@ where
         let namespace_name = NamespaceName::try_from(req.namespace.clone())
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
-        let schema = self
-            .namespace_cache
-            .get_schema(&namespace_name)
-            .await
-            .map_err(|e| {
-                warn!(error=%e, %req.namespace, "failed to retrieve namespace schema");
-                Status::not_found(e.to_string())
-            })?;
+        let schema = match req.table {
+            Some(table_name) => self
+                .namespace_cache
+                .get_table_schema(&namespace_name, &table_name)
+                .await
+                .map_err(|e| {
+                    warn!(error=%e, %req.namespace, %table_name, "failed to retrieve table schema");
+                    Status::not_found(e.to_string())
+                })?,
+
+            None => self
+                .namespace_cache
+                .get_schema(&namespace_name)
+                .await
+                .map_err(|e| {
+                    warn!(error=%e, %req.namespace, "failed to retrieve namespace schema");
+                    Status::not_found(e.to_string())
+                })?,
+        };
 
         Ok(Response::new(GetSchemaResponse {
             schema: Some((&*schema).into()),

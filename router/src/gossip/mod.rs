@@ -89,7 +89,9 @@ mod tests {
     use test_helpers::timeout::FutureTimeout;
 
     use crate::{
-        namespace_cache::{CacheMissErr, MemoryNamespaceCache, NamespaceCache},
+        namespace_cache::{
+            CacheMissErr, GetTableCacheMissErr, MemoryNamespaceCache, NamespaceCache,
+        },
         test_helpers::DEFAULT_NAMESPACE,
     };
 
@@ -111,7 +113,8 @@ mod tests {
 
     impl<C> SchemaBroadcast for Arc<GossipPipe<C>>
     where
-        C: NamespaceCache<ReadError = CacheMissErr> + 'static,
+        C: NamespaceCache<NamespaceReadError = CacheMissErr, TableReadError = GetTableCacheMissErr>
+            + 'static,
     {
         fn broadcast(&self, payload: Event) {
             let this = Arc::clone(self);

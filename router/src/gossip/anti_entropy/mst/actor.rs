@@ -6,7 +6,7 @@ use merkle_search_tree::{diff::PageRangeSnapshot, digest::RootHash, MerkleSearch
 use observability_deps::tracing::{debug, info, trace};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::namespace_cache::{CacheMissErr, NamespaceCache};
+use crate::namespace_cache::{CacheMissErr, GetTableCacheMissErr, NamespaceCache};
 
 use super::handle::AntiEntropyHandle;
 
@@ -42,7 +42,7 @@ impl<T> AntiEntropyActor<T>
 where
     // A cache lookup in the underlying impl MUST be infallible - it's asking
     // for existing records, and the cache MUST always return them.
-    T: NamespaceCache<ReadError = CacheMissErr>,
+    T: NamespaceCache<NamespaceReadError = CacheMissErr, TableReadError = GetTableCacheMissErr>,
 {
     /// Initialise a new [`AntiEntropyActor`], and return the
     /// [`AntiEntropyHandle`] used to interact with it.
