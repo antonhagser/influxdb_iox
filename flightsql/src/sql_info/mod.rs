@@ -20,10 +20,12 @@
 
 mod meta;
 
+use std::collections::HashMap;
+
 use arrow_flight::sql::{
     metadata::{SqlInfoData, SqlInfoDataBuilder},
     SqlInfo, SqlNullOrdering, SqlSupportedCaseSensitivity, SqlSupportedTransactions,
-    SupportedSqlGrammar,
+    SqlSupportsConvert, SupportedSqlGrammar,
 };
 use once_cell::sync::Lazy;
 
@@ -94,9 +96,31 @@ static INSTANCE: Lazy<SqlInfoData> = Lazy::new(|| {
     builder.append(SqlInfo::SqlExtraNameCharacters, "");
     builder.append(SqlInfo::SqlSupportsColumnAliasing, true);
     builder.append(SqlInfo::SqlNullPlusNullIsNull, true);
-    // Skip SqlSupportsConvert (which is the map of the conversions that are supported);
-    // .with_sql_info(SqlInfo::SqlSupportsConvert, TBD);
-    // https://github.com/influxdata/influxdb_iox/issues/7253
+    print!("chunchun SqlSupportsConvert\n\n");
+    let mut convert: HashMap<i32, Vec<i32>> = HashMap::new();
+    convert.insert(
+        SqlSupportsConvert::SqlConvertTinyint as i32,
+        vec![
+            SqlSupportsConvert::SqlConvertBigint as i32,
+            SqlSupportsConvert::SqlConvertChar as i32,
+            SqlSupportsConvert::SqlConvertFloat as i32,
+            SqlSupportsConvert::SqlConvertInteger as i32,
+            SqlSupportsConvert::SqlConvertReal as i32,
+            SqlSupportsConvert::SqlConvertSmallint as i32,
+        ],
+    );
+    convert.insert(
+        SqlSupportsConvert::SqlConvertSmallint as i32,
+        vec![
+            SqlSupportsConvert::SqlConvertBigint as i32,
+            SqlSupportsConvert::SqlConvertChar as i32,
+            SqlSupportsConvert::SqlConvertFloat as i32,
+            SqlSupportsConvert::SqlConvertInteger as i32,
+            SqlSupportsConvert::SqlConvertReal as i32,
+            SqlSupportsConvert::SqlConvertTinyint as i32,
+        ],
+    );
+    builder.append(SqlInfo::SqlSupportsConvert, &convert);
     builder.append(SqlInfo::SqlSupportsTableCorrelationNames, false);
     builder.append(SqlInfo::SqlSupportsDifferentTableCorrelationNames, false);
     builder.append(SqlInfo::SqlSupportsExpressionsInOrderBy, true);
