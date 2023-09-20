@@ -137,6 +137,13 @@ where
         let files_to_compact = files;
 
         match op {
+            CompactType::Unknown {} => {
+                panic!(
+                    "Unknown compaction type shouldn't be processed on partition {}",
+                    partition_info.partition_id()
+                );
+            }
+
             CompactType::ManySmallFiles {
                 start_level,
                 max_num_files_to_group,

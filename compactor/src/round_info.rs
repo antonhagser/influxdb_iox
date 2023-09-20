@@ -10,6 +10,10 @@ use data_types::{CompactionLevel, ParquetFile};
 /// FileRange describes a range of files by the min/max time and the sum of their capacities.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum CompactType {
+    /// Unknown is set temporarily when setting up new regions and we don't know what
+    /// was done previously. This CompactType should be promptly replaced.
+    Unknown {},
+
     /// compacting to target level
     TargetLevel {
         /// compaction level of target fles
@@ -62,6 +66,7 @@ pub enum CompactType {
 impl Display for CompactType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Unknown {} => write!(f, "Unknown"),
             Self::TargetLevel { target_level, max_total_file_size_to_group  } => write!(f, "TargetLevel: {target_level} {max_total_file_size_to_group}"),
             Self::ManySmallFiles {
                 start_level,
@@ -82,6 +87,7 @@ impl CompactType {
     /// what levels should the files in this round be?
     pub fn target_level(&self) -> CompactionLevel {
         match self {
+            Self::Unknown {} => CompactionLevel::Initial, // n/a
             Self::TargetLevel { target_level, .. } => *target_level,
             // For many files, start level is the target level
             Self::ManySmallFiles { start_level, .. } => *start_level,
@@ -104,6 +110,7 @@ impl CompactType {
     /// return max_num_files_to_group, when available.
     pub fn max_num_files_to_group(&self) -> Option<usize> {
         match self {
+            Self::Unknown {} => None,
             Self::TargetLevel { .. } => None,
             Self::ManySmallFiles {
                 max_num_files_to_group,
@@ -121,6 +128,7 @@ impl CompactType {
     /// return max_total_file_size_to_group, when available.
     pub fn max_total_file_size_to_group(&self) -> Option<usize> {
         match self {
+            Self::Unknown {} => None,
             Self::TargetLevel { .. } => None,
             Self::ManySmallFiles {
                 max_total_file_size_to_group,
@@ -138,6 +146,7 @@ impl CompactType {
     /// return split_times, when available.
     pub fn split_times(&self) -> Option<Vec<i64>> {
         match self {
+            Self::Unknown {} => None,
             Self::TargetLevel { .. } => None,
             Self::ManySmallFiles { .. } => None,
             Self::SimulatedLeadingEdge { .. } => None,

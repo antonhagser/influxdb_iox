@@ -340,6 +340,7 @@ impl LevelBasedRoundInfo {
                 files.is_empty(),
                 "last_round_info and files must not both be populated"
             );
+            // All ComapctRanges will have the (stale) op from the prior round.
             self.evaluate_prior_ranges(partition_info, last_round_info)
         } else {
             assert!(
@@ -348,6 +349,7 @@ impl LevelBasedRoundInfo {
             );
             // This is the first round, so no prior round info.
             // We'll take a look at 'files' and see what we can do.
+            // All ComapctRanges will have their op set to Unknown.
             self.split_files_into_ranges(files)
         }
     }
@@ -432,7 +434,7 @@ impl LevelBasedRoundInfo {
                     split_ranges.insert(
                         0,
                         CompactRange {
-                            op: CompactType::Deferred {},
+                            op: range.op.clone(),
                             min: split_time + 1,
                             max,
                             cap,
@@ -457,7 +459,7 @@ impl LevelBasedRoundInfo {
                     split_ranges.insert(
                         0,
                         CompactRange {
-                            op: CompactType::Deferred {},
+                            op: range.op.clone(),
                             min: range.min,
                             max,
                             cap,
@@ -483,6 +485,7 @@ impl LevelBasedRoundInfo {
                     prior.cap += range.cap;
                     prior.has_l0s = prior.has_l0s || has_l0s;
                     prior.add_files_for_now(files_for_now);
+                    prior.op = CompactType::Unknown {};
                 } else {
                     if let Some(prior_range) = prior_range {
                         // we'll not be consolidating with with the prior range, so push it
@@ -572,7 +575,7 @@ impl LevelBasedRoundInfo {
                     .sum::<usize>();
 
                 ranges.push(CompactRange {
-                    op: CompactType::Deferred {},
+                    op: CompactType::Unknown {},
                     min,
                     max,
                     cap,
@@ -593,7 +596,7 @@ impl LevelBasedRoundInfo {
                     .sum::<usize>();
 
                 ranges.push(CompactRange {
-                    op: CompactType::Deferred {},
+                    op: CompactType::Unknown {},
                     min,
                     max,
                     cap,
@@ -620,7 +623,7 @@ impl LevelBasedRoundInfo {
                 .sum::<usize>();
             (
                 vec![CompactRange {
-                    op: CompactType::Deferred {},
+                    op: CompactType::Unknown {},
                     min,
                     max,
                     cap,
@@ -647,6 +650,7 @@ impl RoundInfoSource for LevelBasedRoundInfo {
         files: Vec<ParquetFile>,
     ) -> Result<(Arc<RoundInfo>, bool), DynError> {
         // Step 1: Establish range boundaries, with files in each range.
+        // The op is each range will either be the previous op, or Unknown (either way, its not what we're doing this round)
         let (prior_ranges, mut l2_files_for_later) =
             self.derive_draft_ranges(partition_info, last_round_info, files);
 
@@ -685,7 +689,7 @@ impl RoundInfoSource for LevelBasedRoundInfo {
                 .iter()
                 .any(|f| f.compaction_level == CompactionLevel::Initial);
 
-            if range.has_l0s {
+            if !range.op.is_deferred() && range.has_l0s {
                 let split_times = self.consider_vertical_splitting(
                     partition_info.partition_id(),
                     files_for_now.clone().to_vec(),

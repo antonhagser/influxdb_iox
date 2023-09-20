@@ -44,6 +44,10 @@ impl DivideInitial for MultipleBranchesDivideInitial {
     ) -> (Vec<Vec<ParquetFile>>, Vec<ParquetFile>) {
         let mut more_for_later = vec![];
         match op {
+            CompactType::Unknown {} => {
+                panic!("Unknown compaction type shouldn't be processed on partition {partition}");
+            }
+
             CompactType::ManySmallFiles {
                 start_level,
                 max_num_files_to_group,

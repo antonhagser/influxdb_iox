@@ -33,6 +33,10 @@ impl RoundSplit for ManyFilesRoundSplit {
     ) -> (Vec<ParquetFile>, Vec<ParquetFile>) {
         // Scpecify specific arms to avoid missing any new variants
         match op {
+            CompactType::Unknown {} => {
+                panic!("Unknown compaction type shouldn't be processed on partition {partition}");
+            }
+
             CompactType::ManySmallFiles { start_level, .. } => {
                 // Split start_level from the rest
                 let (start_level_files, rest) = files
