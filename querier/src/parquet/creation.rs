@@ -1,11 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
 use data_types::{ChunkId, ChunkOrder, ColumnId, ParquetFile, TimestampMinMax};
-use datafusion::physical_plan::Statistics;
+use datafusion::{physical_plan::Statistics, prelude::Expr};
 use futures::StreamExt;
 use hashbrown::HashSet;
 use iox_catalog::interface::Catalog;
-use iox_query::chunk_statistics::create_chunk_statistics;
+use iox_query::{chunk_statistics::create_chunk_statistics, pruning::prune_summaries};
 use parquet_file::chunk::ParquetChunk;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use schema::{sort::SortKeyBuilder, Schema};
@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::{
     cache::{namespace::CachedTable, partition::CachedPartition, CatalogCache},
     parquet::QuerierParquetChunkMeta,
+    table::PruneMetrics,
     CONCURRENT_CHUNK_CREATION_JOBS,
 };
 
@@ -26,22 +27,17 @@ pub struct ChunkAdapter {
     /// Cache
     catalog_cache: Arc<CatalogCache>,
 
-    /// Metric registry.
-    metric_registry: Arc<metric::Registry>,
+    /// Prune metrics.
+    prune_metrics: Arc<PruneMetrics>,
 }
 
 impl ChunkAdapter {
     /// Create new adapter with empty cache.
-    pub fn new(catalog_cache: Arc<CatalogCache>, metric_registry: Arc<metric::Registry>) -> Self {
+    pub fn new(catalog_cache: Arc<CatalogCache>, prune_metrics: Arc<PruneMetrics>) -> Self {
         Self {
             catalog_cache,
-            metric_registry,
+            prune_metrics,
         }
-    }
-
-    /// Metric registry getter.
-    pub fn metric_registry(&self) -> Arc<metric::Registry> {
-        Arc::clone(&self.metric_registry)
     }
 
     /// Get underlying catalog cache.
@@ -58,6 +54,7 @@ impl ChunkAdapter {
         &self,
         cached_table: Arc<CachedTable>,
         files: impl IntoIterator<Item = (Arc<ParquetFile>, Arc<CachedPartition>)> + Send,
+        filters: &[Expr],
         span: Option<Span>,
     ) -> Vec<QuerierParquetChunk> {
         let span_recorder = SpanRecorder::new(span);
@@ -126,6 +123,13 @@ impl ChunkAdapter {
                 .collect::<Vec<_>>()
         };
 
+        let files = self.prune_chunks(
+            files,
+            &cached_table,
+            filters,
+            span_recorder.child_span("prune chunks"),
+        );
+
         {
             let _span_recorder = span_recorder.child("finalize chunks");
 
@@ -136,6 +140,56 @@ impl ChunkAdapter {
                     self.new_chunk(cached_table, file)
                 })
                 .collect()
+        }
+    }
+
+    fn prune_chunks(
+        &self,
+        files: Vec<PreparedParquetFileWithStats>,
+        cached_table: &CachedTable,
+        filters: &[Expr],
+        span: Option<Span>,
+    ) -> Vec<PreparedParquetFileWithStats> {
+        let _span_recorder = SpanRecorder::new(span);
+
+        let summaries = files
+            .iter()
+            .map(|f| (Arc::clone(&f.stats), Arc::clone(f.schema.inner())))
+            .collect::<Vec<_>>();
+
+        match prune_summaries(&cached_table.schema, &summaries, filters) {
+            Ok(keeps) => {
+                assert_eq!(files.len(), keeps.len());
+                files
+                    .into_iter()
+                    .zip(keeps.iter())
+                    .filter_map(|(f, keep)| {
+                        if *keep {
+                            self.prune_metrics.was_not_pruned(
+                                f.file.row_count as u64,
+                                f.file.file_size_bytes as u64,
+                            );
+                            Some(f)
+                        } else {
+                            self.prune_metrics.was_pruned_late(
+                                f.file.row_count as u64,
+                                f.file.file_size_bytes as u64,
+                            );
+                            None
+                        }
+                    })
+                    .collect()
+            }
+            Err(reason) => {
+                for f in &files {
+                    self.prune_metrics.could_not_prune(
+                        reason,
+                        f.file.row_count as u64,
+                        f.file.file_size_bytes as u64,
+                    )
+                }
+                files
+            }
         }
     }
 
