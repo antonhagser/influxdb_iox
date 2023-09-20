@@ -282,19 +282,16 @@ impl QuerierTable {
                 span_recorder.child_span("prune partitions"),
             )
             .await;
-        let parquet_files = parquet_files
-            .files
-            .iter()
-            .filter(|f| {
-                if cached_partitions.contains_key(&f.partition_id) {
-                    true
-                } else {
+        let parquet_files = parquet_files.files.iter().filter_map(|f| {
+            match cached_partitions.get(&f.partition_id) {
+                Some(cached_partition) => Some((Arc::clone(f), Arc::clone(cached_partition))),
+                None => {
                     self.prune_metrics
                         .was_pruned_early(f.row_count as u64, f.file_size_bytes as u64);
-                    false
+                    None
                 }
-            })
-            .cloned();
+            }
+        });
 
         // create parquet files
         let parquet_files = self
@@ -302,7 +299,6 @@ impl QuerierTable {
             .new_chunks(
                 Arc::clone(cached_table),
                 parquet_files,
-                &cached_partitions,
                 span_recorder.child_span("new_chunks"),
             )
             .await;

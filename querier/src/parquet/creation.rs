@@ -1,9 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
-use data_types::{ChunkId, ChunkOrder, ColumnId, ParquetFile, TransitionPartitionId};
+use data_types::{ChunkId, ChunkOrder, ColumnId, ParquetFile, TimestampMinMax};
+use datafusion::physical_plan::Statistics;
 use futures::StreamExt;
 use hashbrown::HashSet;
 use iox_catalog::interface::Catalog;
+use iox_query::chunk_statistics::create_chunk_statistics;
 use parquet_file::chunk::ParquetChunk;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use schema::{sort::SortKeyBuilder, Schema};
@@ -55,8 +57,7 @@ impl ChunkAdapter {
     pub(crate) async fn new_chunks(
         &self,
         cached_table: Arc<CachedTable>,
-        files: impl IntoIterator<Item = Arc<ParquetFile>> + Send,
-        cached_partitions: &HashMap<TransitionPartitionId, Arc<CachedPartition>>,
+        files: impl IntoIterator<Item = (Arc<ParquetFile>, Arc<CachedPartition>)> + Send,
         span: Option<Span>,
     ) -> Vec<QuerierParquetChunk> {
         let span_recorder = SpanRecorder::new(span);
@@ -67,7 +68,7 @@ impl ChunkAdapter {
 
             files
                 .into_iter()
-                .map(|f| PreparedParquetFile::new(f, &cached_table))
+                .map(|(f, p)| PreparedParquetFile::new(f, &cached_table, p))
                 .collect::<Vec<_>>()
         };
 
@@ -110,6 +111,21 @@ impl ChunkAdapter {
                 .await
         };
 
+        let files = {
+            let _span_recorder = span_recorder.child("calculate chunk stats");
+
+            files
+                .into_iter()
+                .map(|file| {
+                    let schema = projections
+                        .get(&file.col_list)
+                        .expect("looked up all projections")
+                        .clone();
+                    PreparedParquetFileWithStats::new(file, schema)
+                })
+                .collect::<Vec<_>>()
+        };
+
         {
             let _span_recorder = span_recorder.child("finalize chunks");
 
@@ -117,14 +133,7 @@ impl ChunkAdapter {
                 .into_iter()
                 .map(|file| {
                     let cached_table = Arc::clone(&cached_table);
-                    let schema = projections
-                        .get(&file.col_list)
-                        .expect("looked up all projections")
-                        .clone();
-                    let cached_partition = cached_partitions
-                        .get(&file.file.partition_id)
-                        .expect("filter files down to existing partitions");
-                    self.new_chunk(cached_table, file, schema, cached_partition)
+                    self.new_chunk(cached_table, file)
                 })
                 .collect()
         }
@@ -133,10 +142,16 @@ impl ChunkAdapter {
     fn new_chunk(
         &self,
         cached_table: Arc<CachedTable>,
-        parquet_file: PreparedParquetFile,
-        schema: Schema,
-        cached_partition: &CachedPartition,
+        parquet_file: PreparedParquetFileWithStats,
     ) -> QuerierParquetChunk {
+        let PreparedParquetFileWithStats {
+            file,
+            cached_partition,
+            col_set,
+            schema,
+            stats,
+        } = parquet_file;
+
         // NOTE: Because we've looked up the sort key AFTER the namespace schema, it may contain columns for which we
         //       don't have any schema information yet. This is OK because we've ensured that all file columns are known
         //       within the schema and if a column is NOT part of the file, it will also not be part of the chunk sort
@@ -156,7 +171,7 @@ impl ChunkAdapter {
         let cols = partition_sort_key
             .column_order
             .iter()
-            .filter(|c_id| parquet_file.col_set.contains(*c_id))
+            .filter(|c_id| col_set.contains(*c_id))
             .filter_map(|c_id| cached_table.column_id_map.get(c_id))
             .cloned();
         // cannot use `for_each` because the borrow checker doesn't like that
@@ -169,28 +184,24 @@ impl ChunkAdapter {
             "Sort key can never be empty because there should at least be a time column",
         );
 
-        let chunk_id = ChunkId::from(Uuid::from_u128(parquet_file.file.id.get() as _));
+        let chunk_id = ChunkId::from(Uuid::from_u128(file.id.get() as _));
 
-        let order = ChunkOrder::new(parquet_file.file.max_l0_created_at.get());
+        let order = ChunkOrder::new(file.max_l0_created_at.get());
 
         let meta = Arc::new(QuerierParquetChunkMeta {
             chunk_id,
             order,
             sort_key: Some(sort_key),
-            partition_id: parquet_file.file.partition_id.clone(),
+            partition_id: file.partition_id.clone(),
         });
 
         let parquet_chunk = Arc::new(ParquetChunk::new(
-            parquet_file.file,
+            file,
             schema,
             self.catalog_cache.parquet_store(),
         ));
 
-        QuerierParquetChunk::new(
-            parquet_chunk,
-            meta,
-            Arc::clone(&cached_partition.column_ranges),
-        )
+        QuerierParquetChunk::new(parquet_chunk, meta, stats)
     }
 }
 
@@ -198,6 +209,9 @@ impl ChunkAdapter {
 struct PreparedParquetFile {
     /// The parquet file as received from the catalog.
     file: Arc<ParquetFile>,
+
+    /// Partition
+    cached_partition: Arc<CachedPartition>,
 
     /// The set of columns in this file.
     col_set: HashSet<ColumnId>,
@@ -207,7 +221,11 @@ struct PreparedParquetFile {
 }
 
 impl PreparedParquetFile {
-    fn new(file: Arc<ParquetFile>, cached_table: &CachedTable) -> Self {
+    fn new(
+        file: Arc<ParquetFile>,
+        cached_table: &CachedTable,
+        cached_partition: Arc<CachedPartition>,
+    ) -> Self {
         // be optimistic and assume the the cached table already knows about all columns. Otherwise
         // `.filter(...).collect()` is too pessimistic and resizes the HashSet too often.
         let mut col_set = HashSet::<ColumnId>::with_capacity(file.column_set.len());
@@ -223,8 +241,62 @@ impl PreparedParquetFile {
 
         Self {
             file,
+            cached_partition,
             col_set,
             col_list,
+        }
+    }
+}
+
+/// [`ParquetFile`] with even more additional fields.
+struct PreparedParquetFileWithStats {
+    /// The parquet file as received from the catalog.
+    file: Arc<ParquetFile>,
+
+    /// Partition
+    cached_partition: Arc<CachedPartition>,
+
+    /// The set of columns in this file.
+    col_set: HashSet<ColumnId>,
+
+    /// File schema.
+    ///
+    /// This may be different than the partition or table schema.
+    schema: Schema,
+
+    /// Stats.
+    stats: Arc<Statistics>,
+}
+
+impl PreparedParquetFileWithStats {
+    fn new(file: PreparedParquetFile, schema: Schema) -> Self {
+        let PreparedParquetFile {
+            file,
+            cached_partition,
+            col_set,
+            col_list,
+        } = file;
+
+        // col_list was used to look up schemas, not needed for this transform
+        drop(col_list);
+
+        let ts_min_max = TimestampMinMax {
+            min: file.min_time.get(),
+            max: file.max_time.get(),
+        };
+        let stats = Arc::new(create_chunk_statistics(
+            file.row_count as u64,
+            &schema,
+            Some(ts_min_max),
+            &cached_partition.column_ranges,
+        ));
+
+        Self {
+            file,
+            cached_partition,
+            col_set,
+            schema,
+            stats,
         }
     }
 }
