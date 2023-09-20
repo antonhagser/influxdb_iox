@@ -24,7 +24,10 @@ pub struct RpcWriteGrpcDelegate<C> {
 
 impl<C> RpcWriteGrpcDelegate<C>
 where
-    C: NamespaceCache<ReadError = iox_catalog::interface::Error> + 'static,
+    C: NamespaceCache<
+            NamespaceReadError = iox_catalog::interface::Error,
+            TableReadError = iox_catalog::interface::Error,
+        > + 'static,
 {
     /// Create a new gRPC handler
     pub fn new(

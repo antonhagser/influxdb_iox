@@ -27,13 +27,25 @@ impl<T> NamespaceCache for ShardedCache<T>
 where
     T: NamespaceCache,
 {
-    type ReadError = T::ReadError;
+    type NamespaceReadError = T::NamespaceReadError;
+    type TableReadError = T::TableReadError;
 
     async fn get_schema(
         &self,
         namespace: &NamespaceName<'static>,
-    ) -> Result<Arc<NamespaceSchema>, Self::ReadError> {
+    ) -> Result<Arc<NamespaceSchema>, Self::NamespaceReadError> {
         self.shards.hash(namespace).get_schema(namespace).await
+    }
+
+    async fn get_table_schema(
+        &self,
+        namespace: &NamespaceName<'static>,
+        table: &str,
+    ) -> Result<Arc<NamespaceSchema>, Self::TableReadError> {
+        self.shards
+            .hash(namespace)
+            .get_table_schema(namespace, table)
+            .await
     }
 
     fn put_schema(

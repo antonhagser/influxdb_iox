@@ -15,7 +15,7 @@ use gossip_schema::dispatcher::SchemaEventHandler;
 use observability_deps::tracing::{debug, error, trace, warn};
 use thiserror::Error;
 
-use crate::namespace_cache::{CacheMissErr, NamespaceCache};
+use crate::namespace_cache::{CacheMissErr, GetTableCacheMissErr, NamespaceCache};
 
 /// Errors caused by incoming schema gossip messages from cluster peers.
 #[derive(Debug, Error)]
@@ -91,7 +91,7 @@ pub struct NamespaceSchemaGossip<C> {
 #[async_trait]
 impl<C> SchemaEventHandler for NamespaceSchemaGossip<C>
 where
-    C: NamespaceCache<ReadError = CacheMissErr>,
+    C: NamespaceCache<NamespaceReadError = CacheMissErr, TableReadError = GetTableCacheMissErr>,
 {
     async fn handle(&self, message: Event) {
         trace!(?message, "received schema message");
@@ -110,7 +110,7 @@ where
 
 impl<C> NamespaceSchemaGossip<C>
 where
-    C: NamespaceCache<ReadError = CacheMissErr>,
+    C: NamespaceCache<NamespaceReadError = CacheMissErr, TableReadError = GetTableCacheMissErr>,
 {
     /// Construct this [`NamespaceSchemaGossip`] decorator, using `inner` for
     /// schema storage.

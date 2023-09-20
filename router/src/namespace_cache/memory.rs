@@ -15,6 +15,18 @@ pub struct CacheMissErr {
     pub(crate) namespace: NamespaceName<'static>,
 }
 
+/// An error type indicating that either `namespace` or `table` is missing from the cache.
+#[derive(Debug, Error)]
+pub enum GetTableCacheMissErr {
+    /// The `namespace` was missing from the cache.
+    #[error(transparent)]
+    Namespace(CacheMissErr),
+
+    /// The `table` was missing from the cache.
+    #[error("table {0} not found in cache")]
+    Table(String),
+}
+
 /// An in-memory cache of [`NamespaceSchema`] backed by a hashmap protected with
 /// a read-write mutex.
 #[derive(Debug, Default)]
@@ -24,12 +36,13 @@ pub struct MemoryNamespaceCache {
 
 #[async_trait]
 impl NamespaceCache for MemoryNamespaceCache {
-    type ReadError = CacheMissErr;
+    type NamespaceReadError = CacheMissErr;
+    type TableReadError = GetTableCacheMissErr;
 
     async fn get_schema(
         &self,
         namespace: &NamespaceName<'static>,
-    ) -> Result<Arc<NamespaceSchema>, Self::ReadError> {
+    ) -> Result<Arc<NamespaceSchema>, Self::NamespaceReadError> {
         self.cache
             .read()
             .get(namespace)
@@ -37,6 +50,35 @@ impl NamespaceCache for MemoryNamespaceCache {
                 namespace: namespace.clone(),
             })
             .map(Arc::clone)
+    }
+
+    async fn get_table_schema(
+        &self,
+        namespace: &NamespaceName<'static>,
+        table: &str,
+    ) -> Result<Arc<NamespaceSchema>, Self::TableReadError> {
+        let namespace_schema = self
+            .cache
+            .read()
+            .get(namespace)
+            .ok_or(GetTableCacheMissErr::Namespace(CacheMissErr {
+                namespace: namespace.clone(),
+            }))
+            .map(Arc::clone)?;
+
+        let table_schema = namespace_schema
+            .tables
+            .get(table)
+            .ok_or_else(|| GetTableCacheMissErr::Table(table.to_string()))?;
+
+        Ok(Arc::new(NamespaceSchema {
+            tables: BTreeMap::from([(table.to_string(), table_schema.clone())]),
+            id: namespace_schema.id,
+            max_tables: namespace_schema.max_tables,
+            max_columns_per_table: namespace_schema.max_columns_per_table,
+            retention_period_ns: namespace_schema.retention_period_ns,
+            partition_template: namespace_schema.partition_template.clone(),
+        }))
     }
 
     fn put_schema(

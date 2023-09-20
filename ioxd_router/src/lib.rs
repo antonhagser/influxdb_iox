@@ -132,7 +132,10 @@ impl<D, N, C> ServerType for RpcWriteRouterServerType<D, N, C>
 where
     D: DmlHandler<WriteInput = HashMap<String, MutableBatch>, WriteOutput = ()> + 'static,
     N: NamespaceResolver + 'static,
-    C: NamespaceCache<ReadError = iox_catalog::interface::Error> + 'static,
+    C: NamespaceCache<
+            NamespaceReadError = iox_catalog::interface::Error,
+            TableReadError = iox_catalog::interface::Error,
+        > + 'static,
 {
     fn name(&self) -> &str {
         "rpc_write_router"

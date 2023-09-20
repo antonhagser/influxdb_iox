@@ -4,10 +4,12 @@ use std::{ops::DerefMut, sync::Arc};
 
 use async_trait::async_trait;
 use data_types::{NamespaceName, NamespaceSchema};
-use iox_catalog::interface::{get_schema_by_name, Catalog, SoftDeletedRows};
+use iox_catalog::interface::{
+    get_schema_by_name, get_schema_by_namespace_and_table, Catalog, SoftDeletedRows,
+};
 use observability_deps::tracing::*;
 
-use super::memory::CacheMissErr;
+use super::memory::{CacheMissErr, GetTableCacheMissErr};
 use super::{ChangeStats, NamespaceCache};
 
 /// A [`ReadThroughCache`] decorates a [`NamespaceCache`] with read-through
@@ -41,15 +43,17 @@ impl<T> ReadThroughCache<T> {
 #[async_trait]
 impl<T> NamespaceCache for ReadThroughCache<T>
 where
-    T: NamespaceCache<ReadError = CacheMissErr>,
+    T: NamespaceCache<NamespaceReadError = CacheMissErr, TableReadError = GetTableCacheMissErr>,
 {
-    type ReadError = iox_catalog::interface::Error;
+    type NamespaceReadError = iox_catalog::interface::Error;
+    type TableReadError = iox_catalog::interface::Error;
+
     /// Fetch the schema for `namespace` directly from the inner cache if
-    /// present, pullng from the catalog if not.
+    /// present, pulling from the catalog if not.
     async fn get_schema(
         &self,
         namespace: &NamespaceName<'static>,
-    ) -> Result<Arc<NamespaceSchema>, Self::ReadError> {
+    ) -> Result<Arc<NamespaceSchema>, Self::NamespaceReadError> {
         match self.inner_cache.get_schema(namespace).await {
             Ok(v) => Ok(v),
             Err(CacheMissErr {
@@ -82,6 +86,43 @@ where
 
                 trace!(%namespace, "schema cache populated");
                 Ok(new_schema)
+            }
+        }
+    }
+
+    async fn get_table_schema(
+        &self,
+        namespace: &NamespaceName<'static>,
+        table: &str,
+    ) -> Result<Arc<NamespaceSchema>, Self::TableReadError> {
+        match self.inner_cache.get_table_schema(namespace, table).await {
+            Ok(v) => Ok(v),
+            Err(_) => {
+                let mut repos = self.catalog.repositories().await;
+
+                let schema = match get_schema_by_namespace_and_table(
+                    namespace,
+                    table,
+                    repos.deref_mut(),
+                    SoftDeletedRows::ExcludeDeleted,
+                )
+                .await
+                {
+                    Ok(v) => v,
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            %namespace,
+                            "failed to retrieve namespace schema"
+                        );
+                        return Err(e);
+                    }
+                };
+
+                self.put_schema(namespace.clone(), schema.clone());
+
+                trace!(%namespace, "schema cache populated");
+                Ok(Arc::new(schema))
             }
         }
     }

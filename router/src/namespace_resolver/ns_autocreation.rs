@@ -73,7 +73,8 @@ impl<C, T> NamespaceAutocreation<C, T> {
 #[async_trait]
 impl<C, T> NamespaceResolver for NamespaceAutocreation<C, T>
 where
-    C: NamespaceCache<ReadError = iox_catalog::interface::Error>, // The resolver relies on the cache for read-through cache behaviour
+    // The resolver relies on the cache for read-through cache behaviour
+    C: NamespaceCache<NamespaceReadError = iox_catalog::interface::Error>,
     T: NamespaceResolver,
 {
     /// Force the creation of `namespace` if it does not already exist in the

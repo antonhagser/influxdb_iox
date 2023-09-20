@@ -53,7 +53,7 @@ impl<C> NamespaceSchemaResolver<C> {
 #[async_trait]
 impl<C> NamespaceResolver for NamespaceSchemaResolver<C>
 where
-    C: NamespaceCache<ReadError = iox_catalog::interface::Error>,
+    C: NamespaceCache<NamespaceReadError = iox_catalog::interface::Error>,
 {
     async fn get_namespace_schema(
         &self,

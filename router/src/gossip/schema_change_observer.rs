@@ -47,14 +47,23 @@ where
     T: NamespaceCache,
     U: SchemaBroadcast,
 {
-    type ReadError = T::ReadError;
+    type NamespaceReadError = T::NamespaceReadError;
+    type TableReadError = T::TableReadError;
 
     /// Pass through get operations.
     async fn get_schema(
         &self,
         namespace: &NamespaceName<'static>,
-    ) -> Result<Arc<NamespaceSchema>, Self::ReadError> {
+    ) -> Result<Arc<NamespaceSchema>, Self::NamespaceReadError> {
         self.inner.get_schema(namespace).await
+    }
+
+    async fn get_table_schema(
+        &self,
+        namespace: &NamespaceName<'static>,
+        table: &str,
+    ) -> Result<Arc<NamespaceSchema>, Self::TableReadError> {
+        self.inner.get_table_schema(namespace, table).await
     }
 
     /// Pass through put requests, gossiping the content of the returned

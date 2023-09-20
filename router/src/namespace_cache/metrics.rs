@@ -76,14 +76,35 @@ where
     T: NamespaceCache,
     P: TimeProvider,
 {
-    type ReadError = T::ReadError;
+    type NamespaceReadError = T::NamespaceReadError;
+    type TableReadError = T::TableReadError;
 
     async fn get_schema(
         &self,
         namespace: &NamespaceName<'static>,
-    ) -> Result<Arc<NamespaceSchema>, Self::ReadError> {
+    ) -> Result<Arc<NamespaceSchema>, Self::NamespaceReadError> {
         let t = self.time_provider.now();
         let res = self.inner.get_schema(namespace).await;
+
+        // Avoid exploding if time goes backwards - simply drop the measurement
+        // if it happens.
+        if let Some(delta) = self.time_provider.now().checked_duration_since(t) {
+            match &res {
+                Ok(_) => self.get_hit.record(delta),
+                Err(_) => self.get_miss.record(delta),
+            };
+        }
+
+        res
+    }
+
+    async fn get_table_schema(
+        &self,
+        namespace: &NamespaceName<'static>,
+        table: &str,
+    ) -> Result<Arc<NamespaceSchema>, Self::TableReadError> {
+        let t = self.time_provider.now();
+        let res = self.inner.get_table_schema(namespace, table).await;
 
         // Avoid exploding if time goes backwards - simply drop the measurement
         // if it happens.
