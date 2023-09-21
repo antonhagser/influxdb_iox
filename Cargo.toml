@@ -139,6 +139,7 @@ tonic-health = { version = "0.9.2" }
 tonic-reflection = { version = "0.9.2" }
 prost = { version = "0.11", default-features = false, features = ["std"] }
 prost-build = { version = "0.11.9" }
+prost-types = { version = "0.11.9", features = ["std"] }
 
 # This profile optimizes for runtime performance and small binary size at the expense of longer
 # build times. It's most suitable for final release builds.
