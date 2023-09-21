@@ -23,6 +23,6 @@ tonic = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [build-dependencies] # In alphabetical order
-tonic-build = { workspace = true }
+pbjson-build = { workspace = true }
 prost-build = { workspace = true }
-pbjson-build = "0.5"
+tonic-build = { workspace = true }
