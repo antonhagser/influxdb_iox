@@ -365,12 +365,15 @@ fn pb_column_type(col: &PbColumn) -> Result<InfluxColumnType> {
     })?;
 
     let value_type = pb_value_type(&col.column_name, values)?;
-    let semantic_type = SemanticType::from_i32(col.semantic_type);
+    let semantic_type =
+        SemanticType::try_from(col.semantic_type).map_err(|_| Error::InvalidType {
+            column: col.column_name.clone(),
+        })?;
 
     match (semantic_type, value_type) {
-        (Some(SemanticType::Tag), InfluxFieldType::String) => Ok(InfluxColumnType::Tag),
-        (Some(SemanticType::Field), field) => Ok(InfluxColumnType::Field(field)),
-        (Some(SemanticType::Time), InfluxFieldType::Integer)
+        (SemanticType::Tag, InfluxFieldType::String) => Ok(InfluxColumnType::Tag),
+        (SemanticType::Field, field) => Ok(InfluxColumnType::Field(field)),
+        (SemanticType::Time, InfluxFieldType::Integer)
             if col.column_name.as_str() == TIME_COLUMN_NAME =>
         {
             Ok(InfluxColumnType::Timestamp)
