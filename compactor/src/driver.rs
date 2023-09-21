@@ -223,6 +223,7 @@ async fn try_compact_partition(
     let partition_info = components.partition_info_source.fetch(partition_id).await?;
     let transmit_progress_signal = Arc::new(transmit_progress_signal);
     let mut last_round_info: Option<Arc<RoundInfo>> = None;
+    let concurrency_limit = df_semaphore.total_permits();
 
     if files.is_empty() {
         // This should be unreachable, but can happen when someone is manually activiting partitions for compaction.
@@ -255,6 +256,7 @@ async fn try_compact_partition(
                 Arc::<Components>::clone(&components),
                 last_round_info,
                 &partition_info,
+                concurrency_limit,
                 files,
             )
             .await?;
@@ -284,7 +286,7 @@ async fn try_compact_partition(
                 max = range.max,
                 cap = range.cap,
                 branch_count = branches_cnt,
-                concurrency_limit = df_semaphore.total_permits(),
+                concurrency_limit,
                 "compacting branches concurrently",
             );
 
@@ -322,7 +324,7 @@ async fn try_compact_partition(
                             .await
                         }
                     })
-                    .buffer_unordered(df_semaphore.total_permits())
+                    .buffer_unordered(concurrency_limit)
                     .try_collect()
                     .await?;
 

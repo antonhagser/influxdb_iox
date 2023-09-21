@@ -33,6 +33,7 @@ pub trait RoundInfoSource: Debug + Display + Send + Sync {
         components: Arc<Components>,
         last_round_info: Option<Arc<RoundInfo>>,
         partition_info: &PartitionInfo,
+        concurrency_limit: usize,
         files: Vec<ParquetFile>,
     ) -> Result<(Arc<RoundInfo>, bool), DynError>;
 }
@@ -61,11 +62,18 @@ impl RoundInfoSource for LoggingRoundInfoWrapper {
         components: Arc<Components>,
         last_round_info: Option<Arc<RoundInfo>>,
         partition_info: &PartitionInfo,
+        concurrency_limit: usize,
         files: Vec<ParquetFile>,
     ) -> Result<(Arc<RoundInfo>, bool), DynError> {
         let res = self
             .inner
-            .calculate(components, last_round_info, partition_info, files)
+            .calculate(
+                components,
+                last_round_info,
+                partition_info,
+                concurrency_limit,
+                files,
+            )
             .await;
         if let Ok((round_info, done)) = &res {
             debug!(round_info_source=%self.inner, %round_info, %done, "running round");
@@ -332,8 +340,12 @@ impl LevelBasedRoundInfo {
         &self,
         partition_info: &PartitionInfo,
         last_round_info: Option<Arc<RoundInfo>>,
+        active_range_limit: usize,
         files: Vec<ParquetFile>,
     ) -> (Vec<CompactRange>, Option<Vec<ParquetFile>>) {
+        let mut ranges: Vec<CompactRange>;
+        let l2_files_for_later: Option<Vec<ParquetFile>>;
+
         // We require exactly 1 source of information: either 'files' because this is the first round, or 'last_round_info' from the prior round.
         if let Some(last_round_info) = last_round_info {
             assert!(
@@ -341,7 +353,8 @@ impl LevelBasedRoundInfo {
                 "last_round_info and files must not both be populated"
             );
             // All ComapctRanges will have the (stale) op from the prior round.
-            self.evaluate_prior_ranges(partition_info, last_round_info)
+            (ranges, l2_files_for_later) =
+                self.evaluate_prior_ranges(partition_info, last_round_info);
         } else {
             assert!(
                 !files.is_empty(),
@@ -350,8 +363,21 @@ impl LevelBasedRoundInfo {
             // This is the first round, so no prior round info.
             // We'll take a look at 'files' and see what we can do.
             // All ComapctRanges will have their op set to Unknown.
-            self.split_files_into_ranges(files)
+            (ranges, l2_files_for_later) = self.split_files_into_ranges(files);
         }
+
+        // Apply the active_range_limit by marking ranges to the `right` of that threshold Deferred.
+        for (i, range) in ranges.iter_mut().enumerate() {
+            if i < active_range_limit {
+                if range.op.is_deferred() {
+                    range.op = CompactType::Unknown {}; // Caller will determine appropriate op.
+                }
+            } else {
+                range.op = CompactType::Deferred {}; // Caller preserves Deferred.
+            }
+        }
+
+        (ranges, l2_files_for_later)
     }
 
     // evaluate_prior_ranges is a helper function for derive_draft_ranges, used when there is prior round info.
@@ -558,7 +584,7 @@ impl LevelBasedRoundInfo {
             for mut chain in chains {
                 let mut max = chain.iter().map(|f| f.max_time).max().unwrap().get();
 
-                // 'chain' is the L0s that will become a region.  We also need the L1s and L2s that belong in this region.
+                // 'chain' is the L0s that will become a range.  We also need the L1s and L2s that belong in this range.
 
                 (this_split, l1_files) =
                     l1_files.into_iter().partition(|f| f.min_time.get() <= max);
@@ -647,12 +673,20 @@ impl RoundInfoSource for LevelBasedRoundInfo {
         components: Arc<Components>,
         last_round_info: Option<Arc<RoundInfo>>,
         partition_info: &PartitionInfo,
+        concurrency_limit: usize,
         files: Vec<ParquetFile>,
     ) -> Result<(Arc<RoundInfo>, bool), DynError> {
         // Step 1: Establish range boundaries, with files in each range.
-        // The op is each range will either be the previous op, or Unknown (either way, its not what we're doing this round)
-        let (prior_ranges, mut l2_files_for_later) =
-            self.derive_draft_ranges(partition_info, last_round_info, files);
+        // The op in each range will either be the previous op, Unknown, or Deferred.  If the op comes back from
+        // derive_draft_ranges as Deferred, the CompactRange will be skipped for this round.
+        // derive_draft_ranges will limit the number of active ranges we work on in a round to twice the
+        // concurrency limit, with the excess ranges marked as Deferred.
+        let (prior_ranges, mut l2_files_for_later) = self.derive_draft_ranges(
+            partition_info,
+            last_round_info,
+            concurrency_limit * 2,
+            files,
+        );
 
         let range_cnt = prior_ranges.len();
 

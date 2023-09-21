@@ -10,7 +10,7 @@ use data_types::{CompactionLevel, ParquetFile};
 /// FileRange describes a range of files by the min/max time and the sum of their capacities.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum CompactType {
-    /// Unknown is set temporarily when setting up new regions and we don't know what
+    /// Unknown is set temporarily when setting up new CompactRanges and we don't know what
     /// was done previously. This CompactType should be promptly replaced.
     Unknown {},
 
