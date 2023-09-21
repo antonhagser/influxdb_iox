@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies] # In alphabetical order
 observability_deps = { path = "../observability_deps" }
-pbjson = "0.6"
+pbjson = { workspace = true }
 pbjson-types = "0.5"
 prost = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
