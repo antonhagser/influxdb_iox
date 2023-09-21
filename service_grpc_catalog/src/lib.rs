@@ -180,15 +180,11 @@ fn to_partition(p: data_types::Partition) -> Partition {
     let array_sort_key_ids = p.sort_key_ids.into();
     let proto_sort_key_id = SortKeyIds { array_sort_key_ids };
 
-    let proto_sort_key = p.sort_key.map(|sort_key| SortKey {
-        array_sort_key: sort_key,
-    });
-
     Partition {
         identifier: Some(identifier),
         key: p.partition_key.to_string(),
         table_id: p.table_id.get(),
-        optional_sort_key: proto_sort_key,
+        array_sort_key: p.sort_key,
         sort_key_ids: Some(proto_sort_key_id),
     }
 }

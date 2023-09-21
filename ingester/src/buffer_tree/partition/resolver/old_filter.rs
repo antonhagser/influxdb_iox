@@ -316,7 +316,7 @@ mod tests {
                 hash_id,
                 table_id,
                 partition_key,
-                Some(vec![]),
+                vec![],
                 Default::default(),
                 None,
             )
@@ -401,7 +401,7 @@ mod tests {
             Some(ARBITRARY_PARTITION_HASH_ID.clone()),
             ARBITRARY_TABLE_ID,
             ARBITRARY_PARTITION_KEY.clone(),
-            Some(vec![]),
+            vec![],
             Default::default(),
             None,
         );
