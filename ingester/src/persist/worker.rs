@@ -434,11 +434,18 @@ where
                     Ok(_) => ControlFlow::Break(Ok(new_sort_key_colids)),
                     Err(CasFailure::QueryError(e)) => ControlFlow::Continue(e),
                     Err(CasFailure::ValueMismatch((observed_sort_key, observed_sort_key_ids)))
-                        if observed_sort_key_ids.as_ref() == Some(&new_sort_key_colids) =>
+                        if observed_sort_key_ids == new_sort_key_colids =>
                     {
                         // Invariant: if the column name sort IDs match, the
                         // sort key column strings must also match.
-                        assert_eq!(observed_sort_key, new_sort_key_str);
+                        assert!(observed_sort_key.is_some());
+                        let sk = observed_sort_key
+                            .as_ref()
+                            .unwrap()
+                            .iter()
+                            .map(|s| s.as_str())
+                            .collect::<Vec<&str>>();
+                        assert_eq!(sk, new_sort_key_str);
 
                         // A CAS failure occurred because of a concurrent
                         // sort key update, however the new catalog sort key
@@ -495,7 +502,7 @@ where
                         // Stop the retry loop with an error containing the
                         // newly observed sort key.
                         ControlFlow::Break(Err(PersistError::ConcurrentSortKeyUpdate(
-                            SortKey::from_columns(observed_sort_key),
+                            observed_sort_key.map(SortKey::from_columns),
                             observed_sort_key_ids,
                         )))
                     }
@@ -508,7 +515,7 @@ where
     match update_result {
         Ok(new_sort_key_ids) => {
             // Update the sort key in the Context & PartitionData.
-            ctx.set_partition_sort_key(new_sort_key.clone(), new_sort_key_ids.clone())
+            ctx.set_partition_sort_key(Some(new_sort_key.clone()), new_sort_key_ids.clone())
                 .await;
 
             debug!(
@@ -530,14 +537,12 @@ where
             // Update the cached sort key in the Context (which pushes it
             // through into the PartitionData also) to reflect the newly
             // observed value for the next attempt.
-            assert!(new_sort_key_ids.is_some());
-            let new_sort_key_ids = new_sort_key_ids.unwrap();
             ctx.set_partition_sort_key(new_sort_key.clone(), new_sort_key_ids.clone())
                 .await;
 
             return Err(PersistError::ConcurrentSortKeyUpdate(
                 new_sort_key,
-                Some(new_sort_key_ids),
+                new_sort_key_ids,
             ));
         }
     }

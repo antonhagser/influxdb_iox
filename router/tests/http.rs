@@ -1,6 +1,6 @@
 use crate::common::{TestContextBuilder, TEST_RETENTION_PERIOD};
 use assert_matches::assert_matches;
-use data_types::ColumnType;
+use data_types::{ColumnType, MaxTables};
 use futures::{stream::FuturesUnordered, StreamExt};
 use generated_types::influxdata::{iox::ingester::v1::WriteRequest, pbdata::v1::DatabaseBatch};
 use hashbrown::HashMap;
@@ -8,7 +8,10 @@ use hyper::{Body, Request, StatusCode};
 use iox_catalog::{interface::SoftDeletedRows, test_helpers::arbitrary_namespace};
 use iox_time::{SystemProvider, TimeProvider};
 use metric::{Attributes, DurationHistogram, Metric, U64Counter};
-use router::dml_handlers::{DmlError, RetentionError, SchemaError};
+use router::{
+    dml_handlers::{DmlError, RetentionError},
+    schema_validator::SchemaError,
+};
 use std::sync::Arc;
 
 pub mod common;
@@ -226,7 +229,7 @@ async fn test_schema_limit() {
         .repositories()
         .await
         .namespaces()
-        .update_table_limit("bananas_test", 1)
+        .update_table_limit("bananas_test", MaxTables::new(1))
         .await
         .expect("failed to update table limit");
 

@@ -485,6 +485,7 @@ impl Config {
             persist_hot_partition_cost,
             rpc_write_max_incoming_bytes: 1024 * 1024 * 1024, // 1GiB
             gossip_config: GossipConfig::disabled(),
+            max_partitions_per_namespace: None,
         };
 
         let router_config = RouterConfig {
@@ -511,6 +512,7 @@ impl Config {
             compaction_partition_scratchpad_concurrency: compactor_concurrency,
             query_exec_thread_count: Some(num_threads),
             exec_mem_pool_bytes,
+            exec_mem_pool_percent: 70,
             max_desired_file_size_bytes: 100 * 1024 * 1024, // 100 MB
             percentage_max_file_size: 30,
             split_percentage: 80,

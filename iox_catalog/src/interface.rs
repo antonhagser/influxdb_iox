@@ -3,10 +3,11 @@
 use async_trait::async_trait;
 use data_types::{
     partition_template::{NamespacePartitionTemplateOverride, TablePartitionTemplateOverride},
-    Column, ColumnType, ColumnsByName, CompactionLevel, Namespace, NamespaceId, NamespaceName,
-    NamespaceSchema, NamespaceServiceProtectionLimitsOverride, ParquetFile, ParquetFileId,
-    ParquetFileParams, Partition, PartitionHashId, PartitionId, PartitionKey, SkippedCompaction,
-    SortedColumnSet, Table, TableId, TableSchema, Timestamp, TransitionPartitionId,
+    Column, ColumnType, ColumnsByName, CompactionLevel, MaxColumnsPerTable, MaxTables, Namespace,
+    NamespaceId, NamespaceName, NamespaceSchema, NamespaceServiceProtectionLimitsOverride,
+    ParquetFile, ParquetFileId, ParquetFileParams, Partition, PartitionHashId, PartitionId,
+    PartitionKey, SkippedCompaction, SortedColumnSet, Table, TableId, TableSchema, Timestamp,
+    TransitionPartitionId,
 };
 use iox_time::TimeProvider;
 use snafu::{OptionExt, Snafu};
@@ -292,10 +293,14 @@ pub trait NamespaceRepo: Send + Sync {
     async fn soft_delete(&mut self, name: &str) -> Result<()>;
 
     /// Update the limit on the number of tables that can exist per namespace.
-    async fn update_table_limit(&mut self, name: &str, new_max: i32) -> Result<Namespace>;
+    async fn update_table_limit(&mut self, name: &str, new_max: MaxTables) -> Result<Namespace>;
 
     /// Update the limit on the number of columns that can exist per table in a given namespace.
-    async fn update_column_limit(&mut self, name: &str, new_max: i32) -> Result<Namespace>;
+    async fn update_column_limit(
+        &mut self,
+        name: &str,
+        new_max: MaxColumnsPerTable,
+    ) -> Result<Namespace>;
 }
 
 /// Functions for working with tables in the catalog
@@ -422,7 +427,7 @@ pub trait PartitionRepo: Send + Sync {
         old_sort_key_ids: Option<SortedColumnSet>,
         new_sort_key: &[&str], //todo: remove this new_sort_key
         new_sort_key_ids: &SortedColumnSet,
-    ) -> Result<Partition, CasFailure<(Vec<String>, Option<SortedColumnSet>)>>;
+    ) -> Result<Partition, CasFailure<(Option<Vec<String>>, SortedColumnSet)>>;
 
     /// Record an instance of a partition being selected for compaction but compaction was not
     /// completed for the specified reason.
@@ -764,13 +769,13 @@ pub async fn list_schemas(
 pub(crate) mod test_helpers {
     use crate::{
         test_helpers::{arbitrary_namespace, arbitrary_parquet_file_params, arbitrary_table},
-        validate_or_insert_schema, DEFAULT_MAX_COLUMNS_PER_TABLE, DEFAULT_MAX_TABLES,
+        validate_or_insert_schema,
     };
 
     use super::*;
     use ::test_helpers::assert_error;
     use assert_matches::assert_matches;
-    use data_types::{ColumnId, CompactionLevel};
+    use data_types::{ColumnId, CompactionLevel, MaxColumnsPerTable, MaxTables};
     use futures::Future;
     use generated_types::influxdata::iox::partition_template::v1 as proto;
     use metric::{Attributes, DurationHistogram, Metric};
@@ -843,10 +848,10 @@ pub(crate) mod test_helpers {
         assert_eq!(namespace, lookup_namespace);
 
         // Assert default values for service protection limits.
-        assert_eq!(namespace.max_tables, DEFAULT_MAX_TABLES);
+        assert_eq!(namespace.max_tables, MaxTables::default());
         assert_eq!(
             namespace.max_columns_per_table,
-            DEFAULT_MAX_COLUMNS_PER_TABLE
+            MaxColumnsPerTable::default()
         );
 
         let conflict = repos
@@ -897,21 +902,21 @@ pub(crate) mod test_helpers {
         namespaces.sort_by_key(|ns| ns.name.clone());
         assert_eq!(namespaces, vec![namespace, namespace2]);
 
-        const NEW_TABLE_LIMIT: i32 = 15000;
+        let new_table_limit = MaxTables::new(15000);
         let modified = repos
             .namespaces()
-            .update_table_limit(namespace_name.as_str(), NEW_TABLE_LIMIT)
+            .update_table_limit(namespace_name.as_str(), new_table_limit)
             .await
             .expect("namespace should be updateable");
-        assert_eq!(NEW_TABLE_LIMIT, modified.max_tables);
+        assert_eq!(new_table_limit, modified.max_tables);
 
-        const NEW_COLUMN_LIMIT: i32 = 1500;
+        let new_column_limit = MaxColumnsPerTable::new(1500);
         let modified = repos
             .namespaces()
-            .update_column_limit(namespace_name.as_str(), NEW_COLUMN_LIMIT)
+            .update_column_limit(namespace_name.as_str(), new_column_limit)
             .await
             .expect("namespace should be updateable");
-        assert_eq!(NEW_COLUMN_LIMIT, modified.max_columns_per_table);
+        assert_eq!(new_column_limit, modified.max_columns_per_table);
 
         const NEW_RETENTION_PERIOD_NS: i64 = 5 * 60 * 60 * 1000 * 1000 * 1000;
         let modified = repos
@@ -1277,7 +1282,7 @@ pub(crate) mod test_helpers {
         // test per-namespace table limits
         let latest = repos
             .namespaces()
-            .update_table_limit("namespace_table_test", 1)
+            .update_table_limit("namespace_table_test", MaxTables::new(1))
             .await
             .expect("namespace should be updateable");
         let err = repos
@@ -1495,7 +1500,7 @@ pub(crate) mod test_helpers {
         // test per-namespace column limits
         repos
             .namespaces()
-            .update_column_limit("namespace_column_test", 1)
+            .update_column_limit("namespace_column_test", MaxColumnsPerTable::new(1))
             .await
             .expect("namespace should be updateable");
         let err = repos
@@ -1545,7 +1550,7 @@ pub(crate) mod test_helpers {
             .await
             .expect("failed to create partition");
         // Test: sort_key_ids from create_or_get
-        assert!(partition.sort_key_ids().unwrap().is_empty());
+        assert!(partition.sort_key_ids().is_empty());
         created.insert(partition.id, partition.clone());
         // partition to use
         let partition_bar = repos
@@ -1619,7 +1624,7 @@ pub(crate) mod test_helpers {
         batch.sort_by_key(|p| p.id);
         assert_eq!(created_sorted, batch);
         // Test: sort_key_ids from get_by_id_batch
-        assert!(batch.iter().all(|p| p.sort_key_ids().unwrap().is_empty()));
+        assert!(batch.iter().all(|p| p.sort_key_ids().is_empty()));
         let mut batch = repos
             .partitions()
             .get_by_hash_id_batch(
@@ -1633,7 +1638,7 @@ pub(crate) mod test_helpers {
             .unwrap();
         batch.sort_by_key(|p| p.id);
         // Test: sort_key_ids from get_by_hash_id_batch
-        assert!(batch.iter().all(|p| p.sort_key_ids().unwrap().is_empty()));
+        assert!(batch.iter().all(|p| p.sort_key_ids().is_empty()));
         assert_eq!(created_sorted, batch);
 
         let listed = repos
@@ -1645,9 +1650,7 @@ pub(crate) mod test_helpers {
             .map(|v| (v.id, v))
             .collect::<BTreeMap<_, _>>();
         // Test: sort_key_ids from list_by_table_id
-        assert!(listed
-            .values()
-            .all(|p| p.sort_key_ids().unwrap().is_empty()));
+        assert!(listed.values().all(|p| p.sort_key_ids().is_empty()));
 
         assert_eq!(created, listed);
 
@@ -1671,8 +1674,11 @@ pub(crate) mod test_helpers {
         );
 
         // sort_key should be empty on creation
-        assert!(to_skip_partition.sort_key.is_empty());
-        assert!(to_skip_partition.sort_key_ids.as_ref().unwrap().is_empty());
+        assert!(
+            to_skip_partition.sort_key.is_some()
+                && to_skip_partition.sort_key.as_ref().unwrap().is_empty()
+        );
+        assert!(to_skip_partition.sort_key_ids.as_ref().is_empty());
 
         // test that updates sort_key and sort_key_ids from None to Some
         let updated_partition = repos
@@ -1688,10 +1694,17 @@ pub(crate) mod test_helpers {
             .unwrap();
 
         // verify sort_key and sort_key_ids are updated correctly
-        assert_eq!(updated_partition.sort_key, &["tag2", "tag1", "time"]);
+        assert_eq!(
+            updated_partition.sort_key,
+            Some(vec![
+                "tag2".to_string(),
+                "tag1".to_string(),
+                "time".to_string()
+            ])
+        );
         assert_eq!(
             updated_partition.sort_key_ids,
-            Some(SortedColumnSet::from([2, 1, 3]))
+            SortedColumnSet::from([2, 1, 3])
         );
 
         // test that provides values of both old_sort_key and old_sort_key_ids but they do not match the existing ones
@@ -1709,8 +1722,8 @@ pub(crate) mod test_helpers {
             .expect_err("CAS with incorrect value should fail");
         // verify the sort key is not updated
         assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
-            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
-            assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
+            assert_eq!(old_sort_key, Some(vec!["tag2".to_string(), "tag1".to_string(), "time".to_string()]));
+            assert_eq!(old_sort_key_ids, SortedColumnSet::from([2, 1, 3]));
         });
 
         // test that provides matched old_sort_key but not-matched old_sort_key_ids
@@ -1728,8 +1741,8 @@ pub(crate) mod test_helpers {
             .expect_err("CAS with incorrect value should fail");
         // verify the sort key is not updated
         assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
-            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
-            assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
+            assert_eq!(old_sort_key, Some(vec!["tag2".to_string(), "tag1".to_string(), "time".to_string()]));
+            assert_eq!(old_sort_key_ids, SortedColumnSet::from([2, 1, 3]));
         });
 
         // test that provide None sort_key and None sort_key_ids that do not match with existing values that are not None
@@ -1746,8 +1759,8 @@ pub(crate) mod test_helpers {
             .await
             .expect_err("CAS with incorrect value should fail");
         assert_matches!(err, CasFailure::ValueMismatch((old_sort_key, old_sort_key_ids)) => {
-            assert_eq!(old_sort_key, &["tag2", "tag1", "time"]);
-            assert_eq!(old_sort_key_ids, Some(SortedColumnSet::from([2, 1, 3])));
+            assert_eq!(old_sort_key, Some(vec!["tag2".to_string(), "tag1".to_string(), "time".to_string()]));
+            assert_eq!(old_sort_key_ids, SortedColumnSet::from([2, 1, 3]));
         });
 
         // test getting partition from partition id and verify values of sort_key and sort_key_ids
@@ -1760,11 +1773,15 @@ pub(crate) mod test_helpers {
         // still has the old sort key
         assert_eq!(
             updated_other_partition.sort_key,
-            vec!["tag2", "tag1", "time"]
+            Some(vec![
+                "tag2".to_string(),
+                "tag1".to_string(),
+                "time".to_string()
+            ])
         );
         assert_eq!(
             updated_other_partition.sort_key_ids,
-            Some(SortedColumnSet::from([2, 1, 3]))
+            SortedColumnSet::from([2, 1, 3])
         );
 
         // test getting partition from hash_id and verify values of sort_key and sort_key_ids
@@ -1777,11 +1794,15 @@ pub(crate) mod test_helpers {
         // still has the old sort key
         assert_eq!(
             updated_other_partition.sort_key,
-            vec!["tag2", "tag1", "time"]
+            Some(vec![
+                "tag2".to_string(),
+                "tag1".to_string(),
+                "time".to_string()
+            ])
         );
         assert_eq!(
             updated_other_partition.sort_key_ids,
-            Some(SortedColumnSet::from([2, 1, 3]))
+            SortedColumnSet::from([2, 1, 3])
         );
 
         // test that updates sort_key and sort_key_ids from Some matching values to Some other values
@@ -1803,12 +1824,16 @@ pub(crate) mod test_helpers {
             .unwrap();
         // verify the new values are updated
         assert_eq!(
-            updated_partition.sort_key,
-            vec!["tag2", "tag1", "tag3 , with comma", "time"]
+            updated_other_partition.sort_key,
+            Some(vec![
+                "tag2".to_string(),
+                "tag1".to_string(),
+                "time".to_string()
+            ])
         );
         assert_eq!(
             updated_partition.sort_key_ids,
-            Some(SortedColumnSet::from([2, 1, 4, 3]))
+            SortedColumnSet::from([2, 1, 4, 3])
         );
 
         // test getting the new sort key from partition id
@@ -1820,11 +1845,16 @@ pub(crate) mod test_helpers {
             .unwrap();
         assert_eq!(
             updated_partition.sort_key,
-            vec!["tag2", "tag1", "tag3 , with comma", "time"]
+            Some(vec![
+                "tag2".to_string(),
+                "tag1".to_string(),
+                "tag3 , with comma".to_string(),
+                "time".to_string()
+            ])
         );
         assert_eq!(
             updated_partition.sort_key_ids,
-            Some(SortedColumnSet::from([2, 1, 4, 3]))
+            SortedColumnSet::from([2, 1, 4, 3])
         );
 
         // test getting the new sort key from partition hash_id
@@ -1836,21 +1866,25 @@ pub(crate) mod test_helpers {
             .unwrap();
         assert_eq!(
             updated_partition.sort_key,
-            vec!["tag2", "tag1", "tag3 , with comma", "time"]
+            Some(vec![
+                "tag2".to_string(),
+                "tag1".to_string(),
+                "tag3 , with comma".to_string(),
+                "time".to_string()
+            ])
         );
         assert_eq!(
             updated_partition.sort_key_ids,
-            Some(SortedColumnSet::from([2, 1, 4, 3]))
+            SortedColumnSet::from([2, 1, 4, 3])
         );
 
         // use to_skip_partition_too to update sort key from empty old values
         // first make sure the old values are empty
-        assert!(to_skip_partition_too.sort_key.is_empty());
-        assert!(to_skip_partition_too
-            .sort_key_ids
-            .as_ref()
-            .unwrap()
-            .is_empty());
+        assert!(
+            to_skip_partition_too.sort_key.is_some()
+                && to_skip_partition_too.sort_key.as_ref().unwrap().is_empty()
+        );
+        assert!(to_skip_partition_too.sort_key_ids.as_ref().is_empty());
 
         // test that provides empty old_sort_key and empty old_sort_key_ids
         // --> the new sort key will be updated
@@ -1866,10 +1900,13 @@ pub(crate) mod test_helpers {
             .await
             .unwrap();
         // verify the new values are updated
-        assert_eq!(updated_to_skip_partition_too.sort_key, vec!["tag3", "time"]);
+        assert_eq!(
+            updated_to_skip_partition_too.sort_key,
+            Some(vec!["tag3".to_string(), "time".to_string()])
+        );
         assert_eq!(
             updated_to_skip_partition_too.sort_key_ids,
-            Some(SortedColumnSet::from([3, 4]))
+            SortedColumnSet::from([3, 4])
         );
 
         // The compactor can log why compaction was skipped
@@ -2055,36 +2092,33 @@ pub(crate) mod test_helpers {
 
         // Test: sort_key_ids from most_recent_n
         // Only the first two partitions (represent to_skip_partition_too and to_skip_partition) have vallues, the others are empty
-        let empty_vec_string: Vec<String> = vec![];
+        let empty_vec_string: Option<Vec<String>> = Some(vec![]);
 
         assert_eq!(
             recent[0].sort_key,
-            vec!["tag3".to_string(), "time".to_string(),]
+            Some(vec!["tag3".to_string(), "time".to_string(),])
         );
-        assert_eq!(
-            recent[0].sort_key_ids,
-            Some(SortedColumnSet::from(vec![3, 4]))
-        );
+        assert_eq!(recent[0].sort_key_ids, SortedColumnSet::from(vec![3, 4]));
 
         assert_eq!(
             recent[1].sort_key,
-            vec![
+            Some(vec![
                 "tag2".to_string(),
                 "tag1".to_string(),
                 "tag3 , with comma".to_string(),
                 "time".to_string()
-            ]
+            ])
         );
         assert_eq!(
             recent[1].sort_key_ids,
-            Some(SortedColumnSet::from(vec![2, 1, 4, 3]))
+            SortedColumnSet::from(vec![2, 1, 4, 3])
         );
 
         assert_eq!(recent[2].sort_key, empty_vec_string);
-        assert_eq!(recent[2].sort_key_ids, Some(SortedColumnSet::from(vec![])));
+        assert_eq!(recent[2].sort_key_ids, SortedColumnSet::from(vec![]));
 
         assert_eq!(recent[3].sort_key, empty_vec_string);
-        assert_eq!(recent[3].sort_key_ids, Some(SortedColumnSet::from(vec![])));
+        assert_eq!(recent[3].sort_key_ids, SortedColumnSet::from(vec![]));
 
         let recent = repos
             .partitions()

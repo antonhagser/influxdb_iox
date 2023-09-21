@@ -478,7 +478,7 @@ impl<T> Drop for AbortOnDrop<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, task::Poll, time::Duration};
+    use std::{num::NonZeroUsize, sync::Arc, task::Poll, time::Duration};
 
     use assert_matches::assert_matches;
     use data_types::SortedColumnSet;
@@ -519,12 +519,10 @@ mod tests {
             Arc::new(MockNamespaceNameProvider::new(&**ARBITRARY_NAMESPACE_NAME)),
             Arc::clone(&*ARBITRARY_TABLE_PROVIDER),
             Arc::new(
-                MockPartitionProvider::default().with_partition(
-                    PartitionDataBuilder::new()
-                        .with_sort_key_state(sort_key)
-                        .build(),
-                ),
+                MockPartitionProvider::default()
+                    .with_partition(PartitionDataBuilder::new().with_sort_key_state(sort_key)),
             ),
+            NonZeroUsize::new(usize::MAX).unwrap(),
             Arc::new(MockPostWriteObserver::default()),
             Default::default(),
         );

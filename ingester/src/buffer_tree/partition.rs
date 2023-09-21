@@ -12,15 +12,17 @@ use schema::{merge::SchemaMerger, sort::SortKey, Schema};
 
 use self::{
     buffer::{traits::Queryable, DataBuffer},
+    counter::PartitionCounter,
     persisting::{BatchIdent, PersistingData},
     persisting_list::PersistingList,
 };
-use super::{namespace::NamespaceName, table::metadata::TableMetadata};
+use super::{namespace::NamespaceName, table::metadata::TableMetadata, BufferWriteError};
 use crate::{
     deferred_load::DeferredLoad, query::projection::OwnedProjection, query_adaptor::QueryAdaptor,
 };
 
 mod buffer;
+pub(crate) mod counter;
 pub(crate) mod persisting;
 mod persisting_list;
 pub(crate) mod resolver;
@@ -92,6 +94,13 @@ pub struct PartitionData {
     /// / deferred.
     table: Arc<DeferredLoad<TableMetadata>>,
 
+    /// An optimised empty indicator that returns true when the `buffer` and
+    /// `persisting` list are empty: a subsequent query will not return any
+    /// rows.
+    ///
+    /// False when this partition contains data.
+    is_empty: bool,
+
     /// A [`DataBuffer`] for incoming writes.
     buffer: DataBuffer,
 
@@ -111,6 +120,15 @@ pub struct PartitionData {
     /// The number of persist operations completed over the lifetime of this
     /// [`PartitionData`].
     completed_persistence_count: u64,
+
+    /// A counter tracking the number of non-empty partitions per namespace.
+    ///
+    /// This value is incremented when this [`PartitionData`] transitions from
+    /// empty, to non-empty during write buffering. Likewise the value is
+    /// decremented when persistence is marked as complete and the persisted
+    /// data is dropped, transitioning the [`PartitionData`] from non-empty to
+    /// empty.
+    partition_counter: Arc<PartitionCounter>,
 }
 
 impl PartitionData {
@@ -124,6 +142,7 @@ impl PartitionData {
         table_id: TableId,
         table: Arc<DeferredLoad<TableMetadata>>,
         sort_key: SortKeyState,
+        partition_counter: Arc<PartitionCounter>,
     ) -> Self {
         Self {
             partition_id,
@@ -137,6 +156,8 @@ impl PartitionData {
             persisting: PersistingList::default(),
             started_persistence_count: BatchIdent::default(),
             completed_persistence_count: 0,
+            partition_counter,
+            is_empty: true,
         }
     }
 
@@ -145,9 +166,27 @@ impl PartitionData {
         &mut self,
         mb: MutableBatch,
         sequence_number: SequenceNumber,
-    ) -> Result<(), mutable_batch::Error> {
+    ) -> Result<(), BufferWriteError> {
+        if self.is_empty() {
+            // This partition is transitioning from empty, to non-empty.
+            //
+            // Because non-empty partitions are bounded per namespace, a check
+            // must be made to ensure accepting this write does not exceed the
+            // (approximate) limit.
+            self.partition_counter.inc()?;
+            self.is_empty = false;
+        }
+
+        // Invariant: the non-empty partition counter is always >0 at this
+        // point because this partition is non-empty.
+        debug_assert_ne!(self.partition_counter.read(), 0);
+
         // Buffer the write.
         self.buffer.buffer_write(mb, sequence_number)?;
+
+        // Invariant: if the partition contains a buffered write, it must report
+        // non-empty.
+        debug_assert!(!self.is_empty());
 
         trace!(
             namespace_id = %self.namespace_id,
@@ -183,6 +222,21 @@ impl PartitionData {
         self.persisting.rows() + self.buffer.rows()
     }
 
+    /// Returns true if this partition contains no data (buffered or
+    /// persisting).
+    pub(crate) fn is_empty(&self) -> bool {
+        // Assert the optimised bool is in-sync with the actual state.
+        debug_assert_eq!(
+            self.persisting.is_empty() && self.buffer.rows() == 0,
+            self.is_empty
+        );
+
+        // Optimisation: instead of inspecting the persisting list, and
+        // inspecting the row count of the data buffer, the empty state can be
+        // correctly and cheaply tracked separately.
+        self.is_empty
+    }
+
     /// Return the timestamp min/max values for the data contained within this
     /// [`PartitionData`].
     ///
@@ -215,7 +269,7 @@ impl PartitionData {
     /// batches currently buffered and as such columns are removed as the
     /// individual batches containing those columns are persisted and dropped.
     pub(crate) fn schema(&self) -> Option<Schema> {
-        if self.persisting.is_empty() && self.buffer.rows() == 0 {
+        if self.is_empty() {
             return None;
         }
 
@@ -263,6 +317,13 @@ impl PartitionData {
             debug_assert_eq!(self.rows(), 0);
             return None;
         }
+
+        // Invariant: the number of rows is always > 0 at this point.
+        debug_assert_ne!(self.rows(), 0);
+
+        // Invariant: the non-empty partition counter is always >0 at this
+        // point because this partition is non-empty.
+        debug_assert_ne!(self.partition_counter.read(), 0);
 
         // Construct the query adaptor over the partition data.
         //
@@ -315,6 +376,10 @@ impl PartitionData {
         // From this point on, all code MUST be infallible or the buffered data
         // contained within persisting may be dropped.
 
+        // Invariant: the non-empty partition counter is always >0 at this
+        // point because this partition is non-empty.
+        assert!(self.partition_counter.read() > 0);
+
         // Increment the "started persist" counter.
         //
         // This is used to cheaply identify batches given to the
@@ -344,6 +409,13 @@ impl PartitionData {
         // order).
         self.persisting.push(batch_ident, fsm);
 
+        // Invariant: the partition must not be marked as empty when there's an
+        // entry in the persisting list.
+        debug_assert!(!self.is_empty());
+
+        // Invariant: the number of rows is always > 0 at this point.
+        debug_assert_ne!(self.rows(), 0);
+
         Some(data)
     }
 
@@ -357,6 +429,10 @@ impl PartitionData {
     /// This method panics if [`Self`] is not marked as undergoing a persist
     /// operation, or `batch` is not currently being persisted.
     pub(crate) fn mark_persisted(&mut self, batch: PersistingData) -> SequenceNumberSet {
+        // Invariant: the partition must not be marked as empty when marking
+        // persisting data as complete.
+        debug_assert!(!self.is_empty());
+
         let fsm = self.persisting.remove(batch.batch_ident());
 
         self.completed_persistence_count += 1;
@@ -371,6 +447,22 @@ impl PartitionData {
             batch_ident = %batch.batch_ident(),
             "marking partition persistence complete"
         );
+
+        // Invariant: the non-empty partition counter is always >0 at this
+        // point because this partition is non-empty.
+        assert!(self.partition_counter.read() > 0);
+
+        // If this partition is now empty, the buffered partition counter should
+        // be decremented to return the permit to the per-namespace pool.
+        //
+        // Check the actual partition data content (rather than relying on
+        // is_empty bool) as the list was modified above and the bool state may
+        // need updating.
+        if self.persisting.is_empty() && self.buffer.rows() == 0 {
+            // This partitioning from non-empty to empty.
+            self.partition_counter.dec();
+            self.is_empty = true;
+        }
 
         // Return the set of IDs this buffer contained.
         fsm.into_sequence_number_set()
@@ -427,11 +519,12 @@ impl PartitionData {
     /// [`SortKeyState::Provided`]  with the `new`.
     pub(crate) fn update_sort_key(
         &mut self,
-        new_sort_key: SortKey,
+        new_sort_key: Option<SortKey>,
         new_sort_key_ids: SortedColumnSet,
     ) {
-        assert_eq!(new_sort_key.len(), new_sort_key_ids.len());
-        self.sort_key = SortKeyState::Provided(Some(new_sort_key), Some(new_sort_key_ids));
+        assert!(new_sort_key.is_some());
+        assert_eq!(new_sort_key.as_ref().unwrap().len(), new_sort_key_ids.len());
+        self.sort_key = SortKeyState::Provided(new_sort_key, Some(new_sort_key_ids));
     }
 }
 
@@ -606,6 +699,21 @@ mod tests {
             ];
             assert_batches_eq!(expected, data.record_batches());
         }
+
+        assert!(!p.is_empty());
+
+        // Persist the last buffered data, leaving the partition empty.
+        let data = p.mark_persisting().expect("must contain existing data");
+        assert_eq!(p.started_persistence_count.get(), 2);
+        assert_eq!(p.completed_persistence_count, 1);
+
+        let _ = p.mark_persisted(data);
+        assert_eq!(p.started_persistence_count.get(), 2);
+        assert_eq!(p.completed_persistence_count, 2);
+
+        // Querying the buffer should now return no data
+        assert!(p.get_query_data(&OwnedProjection::default()).is_none());
+        assert!(p.is_empty());
     }
 
     // Ensure the ordering of snapshots & persisting data is preserved such that
@@ -851,6 +959,8 @@ mod tests {
     async fn test_out_of_order_persist() {
         let mut p = PartitionDataBuilder::new().build();
 
+        assert!(p.is_empty());
+
         // Perform the initial write.
         //
         // In the next series of writes this test will overwrite the value of x
@@ -859,9 +969,15 @@ mod tests {
         p.buffer_write(mb, SequenceNumber::new(1))
             .expect("write should succeed");
 
+        // Now contains data.
+        assert!(!p.is_empty());
+
         // Begin persisting the data, moving the buffer to the persisting state.
 
         let persisting_data1 = p.mark_persisting().unwrap();
+
+        // Remains non-empty until persisted.
+        assert!(!p.is_empty());
 
         // Buffer another write, and generate a snapshot by querying it.
         let mb = lp_to_mutable_batch(r#"bananas x=2 42"#).1;
@@ -1001,7 +1117,7 @@ mod tests {
 
         let want_sort_key = SortKey::from_columns(["banana", "platanos", "time"]);
         let want_sort_key_ids = SortedColumnSet::from([1, 3, 2]);
-        p.update_sort_key(want_sort_key.clone(), want_sort_key_ids.clone());
+        p.update_sort_key(Some(want_sort_key.clone()), want_sort_key_ids.clone());
 
         assert_matches!(p.sort_key(), SortKeyState::Provided(_, _));
         assert_eq!(p.sort_key().get_sort_key().await.unwrap(), want_sort_key);
@@ -1032,7 +1148,7 @@ mod tests {
             .await
             .expect("should create");
         // Test: sort_key_ids from create_or_get which is empty
-        assert!(partition.sort_key_ids().unwrap().is_empty());
+        assert!(partition.sort_key_ids().is_empty());
 
         let updated_partition = catalog
             .repositories()
@@ -1050,7 +1166,7 @@ mod tests {
         // Test: sort_key_ids after updating
         assert_eq!(
             updated_partition.sort_key_ids(),
-            Some(&SortedColumnSet::from([1]))
+            &SortedColumnSet::from([1])
         );
 
         // Read the just-created sort key (None)
@@ -1074,7 +1190,7 @@ mod tests {
 
         let want_sort_key = SortKey::from_columns(["banana", "platanos", "time"]);
         let want_sort_key_ids = SortedColumnSet::from([1, 3, 2]);
-        p.update_sort_key(want_sort_key.clone(), want_sort_key_ids.clone());
+        p.update_sort_key(Some(want_sort_key.clone()), want_sort_key_ids.clone());
 
         assert_matches!(p.sort_key(), SortKeyState::Provided(_, _));
         assert_eq!(p.sort_key().get_sort_key().await.unwrap(), want_sort_key);
@@ -1120,6 +1236,7 @@ mod tests {
         let mut p = PartitionDataBuilder::new().build();
 
         assert!(p.mark_persisting().is_none());
+        assert!(p.is_empty());
     }
 
     #[tokio::test]
@@ -1141,5 +1258,6 @@ mod tests {
         let mut p = PartitionDataBuilder::new().build();
 
         assert!(p.get_query_data(&OwnedProjection::default()).is_none());
+        assert!(p.is_empty());
     }
 }

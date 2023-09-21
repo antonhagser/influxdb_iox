@@ -11,17 +11,16 @@ use crate::{
         TRANSITION_SHARD_ID, TRANSITION_SHARD_INDEX,
     },
     metrics::MetricDecorator,
-    DEFAULT_MAX_COLUMNS_PER_TABLE, DEFAULT_MAX_TABLES,
 };
 use async_trait::async_trait;
 use data_types::{
     partition_template::{
         NamespacePartitionTemplateOverride, TablePartitionTemplateOverride, TemplatePart,
     },
-    Column, ColumnId, ColumnSet, ColumnType, CompactionLevel, Namespace, NamespaceId,
-    NamespaceName, NamespaceServiceProtectionLimitsOverride, ParquetFile, ParquetFileId,
-    ParquetFileParams, Partition, PartitionHashId, PartitionId, PartitionKey, SkippedCompaction,
-    SortedColumnSet, Table, TableId, Timestamp, TransitionPartitionId,
+    Column, ColumnId, ColumnSet, ColumnType, CompactionLevel, MaxColumnsPerTable, MaxTables,
+    Namespace, NamespaceId, NamespaceName, NamespaceServiceProtectionLimitsOverride, ParquetFile,
+    ParquetFileId, ParquetFileParams, Partition, PartitionHashId, PartitionId, PartitionKey,
+    SkippedCompaction, SortedColumnSet, Table, TableId, Timestamp, TransitionPartitionId,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Display};
@@ -271,8 +270,12 @@ impl NamespaceRepo for SqliteTxn {
         retention_period_ns: Option<i64>,
         service_protection_limits: Option<NamespaceServiceProtectionLimitsOverride>,
     ) -> Result<Namespace> {
-        let max_tables = service_protection_limits.and_then(|l| l.max_tables);
-        let max_columns_per_table = service_protection_limits.and_then(|l| l.max_columns_per_table);
+        let max_tables = service_protection_limits
+            .and_then(|l| l.max_tables)
+            .unwrap_or_default();
+        let max_columns_per_table = service_protection_limits
+            .and_then(|l| l.max_columns_per_table)
+            .unwrap_or_default();
 
         let rec = sqlx::query_as::<_, Namespace>(
             r#"
@@ -286,8 +289,8 @@ RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, dele
         .bind(SHARED_TOPIC_ID) // $2
         .bind(SHARED_QUERY_POOL_ID) // $3
         .bind(retention_period_ns) // $4
-        .bind(max_tables.unwrap_or(DEFAULT_MAX_TABLES)) // $5
-        .bind(max_columns_per_table.unwrap_or(DEFAULT_MAX_COLUMNS_PER_TABLE)) // $6
+        .bind(max_tables) // $5
+        .bind(max_columns_per_table) // $6
         .bind(partition_template); // $7
 
         let rec = rec.fetch_one(self.inner.get_mut()).await.map_err(|e| {
@@ -398,7 +401,7 @@ WHERE name=$1 AND {v};
             .map(|_| ())
     }
 
-    async fn update_table_limit(&mut self, name: &str, new_max: i32) -> Result<Namespace> {
+    async fn update_table_limit(&mut self, name: &str, new_max: MaxTables) -> Result<Namespace> {
         let rec = sqlx::query_as::<_, Namespace>(
             r#"
 UPDATE namespace
@@ -423,7 +426,11 @@ RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, dele
         Ok(namespace)
     }
 
-    async fn update_column_limit(&mut self, name: &str, new_max: i32) -> Result<Namespace> {
+    async fn update_column_limit(
+        &mut self,
+        name: &str,
+        new_max: MaxColumnsPerTable,
+    ) -> Result<Namespace> {
         let rec = sqlx::query_as::<_, Namespace>(
             r#"
 UPDATE namespace
@@ -817,23 +824,22 @@ struct PartitionPod {
     hash_id: Option<PartitionHashId>,
     table_id: TableId,
     partition_key: PartitionKey,
-    sort_key: Json<Vec<String>>,
-    sort_key_ids: Option<Json<Vec<i64>>>,
+    sort_key: Option<Json<Vec<String>>>,
+    sort_key_ids: Json<Vec<i64>>,
     new_file_at: Option<Timestamp>,
 }
 
 impl From<PartitionPod> for Partition {
     fn from(value: PartitionPod) -> Self {
-        let sort_key_ids = value
-            .sort_key_ids
-            .map(|sort_key_ids| SortedColumnSet::from(sort_key_ids.0));
+        let sort_key = value.sort_key.map(|sort_key| sort_key.0);
+        let sort_key_ids = SortedColumnSet::from(value.sort_key_ids.0);
 
         Self::new_with_hash_id_from_sqlite_catalog_only(
             value.id,
             value.hash_id,
             value.table_id,
             value.partition_key,
-            value.sort_key.0,
+            sort_key,
             sort_key_ids,
             value.new_file_at,
         )
@@ -1014,7 +1020,7 @@ WHERE table_id = $1;
         old_sort_key_ids: Option<SortedColumnSet>,
         new_sort_key: &[&str],
         new_sort_key_ids: &SortedColumnSet,
-    ) -> Result<Partition, CasFailure<(Vec<String>, Option<SortedColumnSet>)>> {
+    ) -> Result<Partition, CasFailure<(Option<Vec<String>>, SortedColumnSet)>> {
         // These asserts are here to cacth bugs. They will be removed when we remove the sort_key
         // field from the Partition
         assert_eq!(
@@ -1802,7 +1808,7 @@ mod tests {
         assert_eq!(table_partitions[0].hash_id().unwrap(), &hash_id);
 
         // Test: sort_key_ids from partition_create_or_get_idempotent
-        assert!(table_partitions[0].sort_key_ids().unwrap().is_empty());
+        assert!(table_partitions[0].sort_key_ids().is_empty());
     }
 
     #[tokio::test]
@@ -1851,7 +1857,7 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
             .expect("idempotent write should succeed");
 
         // Test: sort_key_ids from freshly insert with empty value
-        assert!(inserted_again.sort_key_ids().unwrap().is_empty());
+        assert!(inserted_again.sort_key_ids().is_empty());
 
         assert_eq!(partition, &inserted_again);
 
@@ -2121,9 +2127,9 @@ RETURNING id, hash_id, table_id, partition_key, sort_key, sort_key_ids, new_file
         let insert_null_partition_template_namespace = sqlx::query(
             r#"
 INSERT INTO namespace (
-    name, topic_id, query_pool_id, retention_period_ns, max_tables, partition_template
+    name, topic_id, query_pool_id, retention_period_ns, partition_template
 )
-VALUES ( $1, $2, $3, $4, $5, NULL )
+VALUES ( $1, $2, $3, $4, NULL )
 RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, deleted_at,
           partition_template;
             "#,
@@ -2131,8 +2137,7 @@ RETURNING id, name, retention_period_ns, max_tables, max_columns_per_table, dele
         .bind(namespace_name) // $1
         .bind(SHARED_TOPIC_ID) // $2
         .bind(SHARED_QUERY_POOL_ID) // $3
-        .bind(None::<Option<i64>>) // $4
-        .bind(DEFAULT_MAX_TABLES); // $5
+        .bind(None::<Option<i64>>); // $4
 
         insert_null_partition_template_namespace
             .fetch_one(&pool)

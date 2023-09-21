@@ -20,9 +20,10 @@ use crate::{
         timeout::{timeout_with_progress_checking, TimeoutWithProgress},
         Components,
     },
-    error::{DynError, ErrorKind, SimpleError},
+    error::{DynError, ErrorKind, ErrorKindExt, SimpleError},
     file_classification::{FileClassification, FilesForProgress},
     partition_info::PartitionInfo,
+    round_info::CompactType,
     PlanIR, RoundInfo,
 };
 
@@ -221,35 +222,34 @@ async fn try_compact_partition(
     let mut files = components.partition_files_source.fetch(partition_id).await;
     let partition_info = components.partition_info_source.fetch(partition_id).await?;
     let transmit_progress_signal = Arc::new(transmit_progress_signal);
-    let mut last_round_info: Option<RoundInfo> = None;
+    let mut last_round_info: Option<Arc<RoundInfo>> = None;
 
-    // loop for each "Round", consider each file in the partition
-    // for partitions with a lot of compaction work to do, keeping the work divided into multiple rounds,
-    // with mutliple calls to execute_branch is important to frequently clean the scratchpad and prevent
-    // high memory use.
+    if files.is_empty() {
+        // This should be unreachable, but can happen when someone is manually activiting partitions for compaction.
+        info!(
+            partition_id = partition_info.partition_id.get(),
+            "that's odd - no files to compact in partition"
+        );
+        return Ok(());
+    }
+
+    // This is the stop condition which will be different for different version of compaction
+    // and describe where the filter is created at version_specific_partition_filters function
+    if !components
+        .partition_filter
+        .apply(&partition_info, &files)
+        .await?
+    {
+        return Ok(());
+    }
+
+    // loop for each "Round".  A round is comprised of the next thing we can do, on one or more branches within
+    // one or more CompactRegions.  A round does not feed back into itself.  So when split|compaction output feeds
+    // into another split|compaction, that's a new round.
     loop {
         let round_span = span.child("round");
 
-        if files.is_empty() {
-            // This should be unreachable, but can happen when someone is manually activiting partitions for compaction.
-            info!(
-                partition_id = partition_info.partition_id.get(),
-                "that's odd - no files to compact in partition"
-            );
-            return Ok(());
-        }
-
-        // This is the stop condition which will be different for different version of compaction
-        // and describe where the filter is created at version_specific_partition_filters function
-        if !components
-            .partition_filter
-            .apply(&partition_info, &files)
-            .await?
-        {
-            return Ok(());
-        }
-
-        let (round_info, branches, files_later) = components
+        let (round_info, done) = components
             .round_info_source
             .calculate(
                 Arc::<Components>::clone(&components),
@@ -259,49 +259,90 @@ async fn try_compact_partition(
             )
             .await?;
 
-        files = files_later;
+        files = vec![];
+
+        if done || round_info.ranges.is_empty() {
+            return Ok(());
+        }
 
         info!(
             partition_id = partition_info.partition_id.get(),
-            branch_count = branches.len(),
-            concurrency_limit = df_semaphore.total_permits(),
-            "compacting branches concurrently",
+            range_count = round_info.ranges.len(),
+            "compacting ranges",
         );
 
-        // concurrently run the branches.
-        let branches_output: Vec<Vec<ParquetFile>> = stream::iter(branches.into_iter())
-            .map(|branch| {
-                let partition_info = Arc::clone(&partition_info);
-                let components = Arc::clone(&components);
-                let df_semaphore = Arc::clone(&df_semaphore);
-                let transmit_progress_signal = Arc::clone(&transmit_progress_signal);
-                let scratchpad = Arc::clone(&scratchpad_ctx);
-                let job = job.clone();
-                let branch_span = round_span.child("branch");
-                let round_info = round_info.clone();
-                let gossip_handle = gossip_handle.clone();
+        // TODO: consider adding concurrency on the ranges
+        for range in &round_info.ranges {
+            // For each range, we'll consume branches from the range_info and put the output into files_for_later in the range_info.
+            let branches = range.branches.lock().unwrap().take();
+            let branches_cnt = branches.as_ref().map(|v| v.len()).unwrap_or(0);
 
-                async move {
-                    execute_branch(
-                        branch_span,
-                        job,
-                        branch,
-                        df_semaphore,
-                        components,
-                        scratchpad,
-                        partition_info,
-                        round_info,
-                        transmit_progress_signal,
-                        gossip_handle,
-                    )
-                    .await
-                }
-            })
-            .buffer_unordered(df_semaphore.total_permits())
-            .try_collect()
-            .await?;
+            info!(
+                partition_id = partition_info.partition_id.get(),
+                op = range.op.to_string(),
+                min = range.min,
+                max = range.max,
+                cap = range.cap,
+                branch_count = branches_cnt,
+                concurrency_limit = df_semaphore.total_permits(),
+                "compacting branches concurrently",
+            );
 
-        files.extend(branches_output.into_iter().flatten());
+            if branches.is_none() {
+                continue;
+            }
+
+            // concurrently run the branches.
+            let branches_output: Vec<Vec<ParquetFile>> =
+                stream::iter(branches.unwrap().into_iter())
+                    .map(|branch| {
+                        let partition_info = Arc::clone(&partition_info);
+                        let components = Arc::clone(&components);
+                        let df_semaphore = Arc::clone(&df_semaphore);
+                        let transmit_progress_signal = Arc::clone(&transmit_progress_signal);
+                        let scratchpad = Arc::clone(&scratchpad_ctx);
+                        let job = job.clone();
+                        let branch_span = round_span.child("branch");
+                        let gossip_handle = gossip_handle.clone();
+                        let op = range.op.clone();
+
+                        async move {
+                            execute_branch(
+                                branch_span,
+                                job,
+                                branch,
+                                df_semaphore,
+                                components,
+                                scratchpad,
+                                partition_info,
+                                op,
+                                transmit_progress_signal,
+                                gossip_handle,
+                            )
+                            .await
+                        }
+                    })
+                    .buffer_unordered(df_semaphore.total_permits())
+                    .try_collect()
+                    .await?;
+
+            // The branches for this range are done, their output needs added to this range's files_for_later.
+            let branches_output: Vec<ParquetFile> = branches_output.into_iter().flatten().collect();
+
+            let mut files_for_later = range
+                .files_for_later
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap_or(Vec::new());
+
+            files_for_later.extend(branches_output);
+            range
+                .files_for_later
+                .lock()
+                .unwrap()
+                .replace(files_for_later);
+        }
         last_round_info = Some(round_info);
     }
 }
@@ -316,7 +357,7 @@ async fn execute_branch(
     components: Arc<Components>,
     scratchpad_ctx: Arc<dyn Scratchpad>,
     partition_info: Arc<PartitionInfo>,
-    round_info: RoundInfo,
+    op: CompactType,
     transmit_progress_signal: Arc<Sender<bool>>,
     gossip_handle: Option<Arc<CompactionEventTx>>,
 ) -> Result<Vec<ParquetFile>, DynError> {
@@ -336,7 +377,7 @@ async fn execute_branch(
         files_to_keep,
     } = components
         .file_classifier
-        .classify(&partition_info, &round_info, branch);
+        .classify(&partition_info, &op, branch);
 
     // Evaluate whether there's work to do or not based on the files classified for
     // making progress on. If there's no work to do, return early.
@@ -556,75 +597,98 @@ async fn execute_plan(
     span.set_metadata("input_bytes", plan_ir.input_bytes().to_string());
     span.set_metadata("reason", plan_ir.reason());
 
+    // We'll start with 1 permit and if the job exhausts resources, increase it.
+    let mut requested_permits = 1;
+    let mut res: Result<Vec<ParquetFileParams>, DynError> = Ok(Vec::new());
+
     let create = {
         // use the address of the plan as a uniq identifier so logs can be matched despite the concurrency.
         let plan_id = format!("{:p}", &plan_ir);
 
-        info!(
-            partition_id = partition_info.partition_id.get(),
-            jobs_running = df_semaphore.holders_acquired(),
-            jobs_pending = df_semaphore.holders_pending(),
-            permits_acquired = df_semaphore.permits_acquired(),
-            permits_pending = df_semaphore.permits_pending(),
-            plan_id,
-            "requesting job semaphore",
-        );
+        while requested_permits <= df_semaphore.total_permits() {
+            info!(
+                partition_id = partition_info.partition_id.get(),
+                jobs_running = df_semaphore.holders_acquired(),
+                jobs_pending = df_semaphore.holders_pending(),
+                requested_permits,
+                permits_acquired = df_semaphore.permits_acquired(),
+                permits_pending = df_semaphore.permits_pending(),
+                plan_id,
+                "requesting job semaphore",
+            );
 
-        // draw semaphore BEFORE creating the DataFusion plan and drop it directly AFTER finishing the
-        // DataFusion computation (but BEFORE doing any additional external IO).
-        //
-        // We guard the DataFusion planning (that doesn't perform any IO) via the semaphore as well in case
-        // DataFusion ever starts to pre-allocate buffers during the physical planning. To the best of our
-        // knowledge, this is currently (2023-08-29) not the case but if this ever changes, then we are prepared.
-        let permit_span = span.child("acquire_permit");
-        let permit = df_semaphore
-            .acquire(None)
-            .await
-            .expect("semaphore not closed");
-        drop(permit_span);
+            // draw semaphore BEFORE creating the DataFusion plan and drop it directly AFTER finishing the
+            // DataFusion computation (but BEFORE doing any additional external IO).
+            //
+            // We guard the DataFusion planning (that doesn't perform any IO) via the semaphore as well in case
+            // DataFusion ever starts to pre-allocate buffers during the physical planning. To the best of our
+            // knowledge, this is currently (2023-08-29) not the case but if this ever changes, then we are prepared.
+            let permit_span = span.child("acquire_permit");
+            let permit = df_semaphore
+                .acquire_many(requested_permits as u32, None)
+                .await
+                .expect("semaphore not closed");
+            drop(permit_span);
 
-        info!(
-            partition_id = partition_info.partition_id.get(),
-            column_count = partition_info.column_count(),
-            input_files = plan_ir.n_input_files(),
-            plan_id,
-            "job semaphore acquired",
-        );
+            info!(
+                partition_id = partition_info.partition_id.get(),
+                column_count = partition_info.column_count(),
+                input_files = plan_ir.n_input_files(),
+                plan_id,
+                "job semaphore acquired",
+            );
 
-        let df_span = span.child_span("data_fusion");
-        let plan = components
-            .df_planner
-            .plan(&plan_ir, Arc::clone(partition_info))
-            .await?;
-        let streams = components.df_plan_exec.exec(Arc::<
-            dyn datafusion::physical_plan::ExecutionPlan,
-        >::clone(&plan));
-        let job = components.parquet_files_sink.stream_into_file_sink(
-            streams,
-            Arc::clone(partition_info),
-            plan_ir.target_level(),
-            &plan_ir,
-        );
+            let df_span = span.child_span("data_fusion");
+            let plan = components
+                .df_planner
+                .plan(&plan_ir, Arc::clone(partition_info))
+                .await?;
+            let streams = components.df_plan_exec.exec(Arc::<
+                dyn datafusion::physical_plan::ExecutionPlan,
+            >::clone(&plan));
+            let job = components.parquet_files_sink.stream_into_file_sink(
+                streams,
+                Arc::clone(partition_info),
+                plan_ir.target_level(),
+                &plan_ir,
+            );
 
-        // TODO: react to OOM and try to divide branch
-        let res = job.await;
+            res = job.await;
 
-        if let Some(span) = &df_span {
-            send_metrics_to_tracing(Utc::now(), span, plan.as_ref(), true);
-        };
+            if let Some(span) = &df_span {
+                send_metrics_to_tracing(Utc::now(), span, plan.as_ref(), true);
+            };
 
-        drop(permit);
-        drop(df_span);
+            drop(permit);
+            drop(df_span);
 
-        // inputs can be removed from the scratchpad as soon as we're done with compaction.
+            info!(
+                partition_id = partition_info.partition_id.get(),
+                plan_id, "job semaphore released",
+            );
+
+            if let Err(e) = &res {
+                match e.classify() {
+                    ErrorKind::OutOfMemory => {
+                        requested_permits *= 2;
+                        info!(
+                            partition_id = partition_info.partition_id.get(),
+                            plan_id,
+                            requested_permits,
+                            "job failed with out of memory error - increased permit request",
+                        );
+                    }
+                    _ => break,
+                }
+            } else {
+                break;
+            }
+        }
+
+        // inputs can be removed from the scratchpad as soon as we're done with compaction
         scratchpad_ctx
             .clean_from_scratchpad(&plan_ir.input_paths())
             .await;
-
-        info!(
-            partition_id = partition_info.partition_id.get(),
-            plan_id, "job semaphore released",
-        );
 
         res?
     };
