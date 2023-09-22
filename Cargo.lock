@@ -281,9 +281,9 @@ dependencies = [
  "futures",
  "once_cell",
  "paste",
- "prost",
+ "prost 0.11.9",
  "tokio",
- "tonic",
+ "tonic 0.9.2",
 ]
 
 [[package]]
@@ -517,7 +517,7 @@ dependencies = [
  "snafu",
  "test_helpers_end_to_end",
  "tokio",
- "tonic",
+ "tonic 0.10.1",
  "workspace-hack",
 ]
 
@@ -924,7 +924,7 @@ dependencies = [
  "reqwest",
  "thiserror",
  "tokio",
- "tonic",
+ "tonic 0.10.1",
  "tower",
  "workspace-hack",
 ]
@@ -1076,9 +1076,9 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2895653b4d9f1538a83970077cb01dfc77a4810524e51a110944688e916b18e"
 dependencies = [
- "prost",
+ "prost 0.11.9",
  "prost-types",
- "tonic",
+ "tonic 0.9.2",
  "tracing-core",
 ]
 
@@ -1101,7 +1101,7 @@ dependencies = [
  "thread_local",
  "tokio",
  "tokio-stream",
- "tonic",
+ "tonic 0.9.2",
  "tracing",
  "tracing-core",
  "tracing-subscriber",
@@ -1571,7 +1571,7 @@ dependencies = [
  "datafusion-common",
  "datafusion-expr",
  "object_store",
- "prost",
+ "prost 0.11.9",
 ]
 
 [[package]]
@@ -1849,7 +1849,7 @@ dependencies = [
  "iox_query",
  "observability_deps",
  "once_cell",
- "prost",
+ "prost 0.11.9",
  "snafu",
  "workspace-hack",
 ]
@@ -2035,10 +2035,10 @@ dependencies = [
  "pbjson 0.6.0",
  "pbjson-build",
  "pbjson-types",
- "prost",
+ "prost 0.11.9",
  "prost-build",
  "serde",
- "tonic",
+ "tonic 0.10.1",
  "tonic-build",
  "workspace-hack",
 ]
@@ -2084,7 +2084,7 @@ dependencies = [
  "futures",
  "hashbrown 0.14.0",
  "metric",
- "prost",
+ "prost 0.11.9",
  "prost-build",
  "rand",
  "test_helpers",
@@ -2158,11 +2158,11 @@ dependencies = [
  "http-body",
  "hyper",
  "pin-project",
- "prost",
+ "prost 0.11.9",
  "prost-build",
  "tokio",
  "tokio-stream",
- "tonic",
+ "tonic 0.10.1",
  "tonic-build",
  "tower",
  "workspace-hack",
@@ -2172,10 +2172,10 @@ dependencies = [
 name = "grpc-binary-logger-proto"
 version = "0.1.0"
 dependencies = [
- "prost",
+ "prost 0.11.9",
  "prost-build",
  "prost-types",
- "tonic",
+ "tonic 0.10.1",
  "tonic-build",
  "workspace-hack",
 ]
@@ -2184,9 +2184,9 @@ dependencies = [
 name = "grpc-binary-logger-test-proto"
 version = "0.1.0"
 dependencies = [
- "prost",
+ "prost 0.11.9",
  "prost-build",
- "tonic",
+ "tonic 0.10.1",
  "tonic-build",
  "workspace-hack",
 ]
@@ -2641,7 +2641,7 @@ dependencies = [
  "predicates",
  "pretty_assertions",
  "proptest",
- "prost",
+ "prost 0.11.9",
  "rustyline",
  "schema",
  "serde",
@@ -2657,7 +2657,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tokio_metrics_bridge",
- "tonic",
+ "tonic 0.10.1",
  "trace_exporters",
  "trogging",
  "uuid",
@@ -2680,7 +2680,7 @@ dependencies = [
  "generated_types",
  "influxdb-line-protocol",
  "insta",
- "prost",
+ "prost 0.11.9",
  "rand",
  "reqwest",
  "schema",
@@ -2688,7 +2688,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
- "tonic",
+ "tonic 0.10.1",
 ]
 
 [[package]]
@@ -2699,8 +2699,8 @@ dependencies = [
  "futures-util",
  "generated_types",
  "observability_deps",
- "prost",
- "tonic",
+ "prost 0.11.9",
+ "tonic 0.10.1",
  "workspace-hack",
 ]
 
@@ -2774,7 +2774,7 @@ dependencies = [
  "pin-project",
  "predicate",
  "proptest",
- "prost",
+ "prost 0.11.9",
  "rand",
  "schema",
  "service_grpc_catalog",
@@ -2784,7 +2784,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
- "tonic",
+ "tonic 0.10.1",
  "trace",
  "tracker",
  "uuid",
@@ -2813,7 +2813,7 @@ dependencies = [
  "snafu",
  "test_helpers",
  "tokio",
- "tonic",
+ "tonic 0.10.1",
  "trace",
  "trace_http",
  "uuid",
@@ -2834,12 +2834,12 @@ dependencies = [
  "pbjson 0.6.0",
  "pbjson-build",
  "predicate",
- "prost",
+ "prost 0.11.9",
  "prost-build",
  "query_functions",
  "serde",
  "snafu",
- "tonic",
+ "tonic 0.10.1",
  "tonic-build",
  "workspace-hack",
 ]
@@ -2868,12 +2868,12 @@ dependencies = [
  "object_store",
  "observability_deps",
  "parquet_file",
- "prost",
+ "prost 0.11.9",
  "tempfile",
  "test_helpers",
  "tokio",
  "tokio-util",
- "tonic",
+ "tonic 0.10.1",
  "trace",
  "workspace-hack",
 ]
@@ -3119,7 +3119,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
- "tonic",
+ "tonic 0.10.1",
  "tonic-health",
  "tonic-reflection",
  "tower",
@@ -3221,7 +3221,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
- "tonic",
+ "tonic 0.10.1",
  "trace",
  "workspace-hack",
 ]
@@ -3695,7 +3695,7 @@ dependencies = [
  "mutable_batch",
  "mutable_batch_lp",
  "mutable_batch_pb",
- "prost",
+ "prost 0.11.9",
 ]
 
 [[package]]
@@ -4088,7 +4088,7 @@ dependencies = [
  "observability_deps",
  "parquet",
  "pbjson-types",
- "prost",
+ "prost 0.11.9",
  "rand",
  "schema",
  "snafu",
@@ -4162,7 +4162,7 @@ checksum = "bdbb7b706f2afc610f3853550cdbbf6372fd324824a087806bd4480ea4996e24"
 dependencies = [
  "heck",
  "itertools 0.10.5",
- "prost",
+ "prost 0.11.9",
  "prost-types",
 ]
 
@@ -4176,7 +4176,7 @@ dependencies = [
  "chrono",
  "pbjson 0.5.1",
  "pbjson-build",
- "prost",
+ "prost 0.11.9",
  "prost-build",
  "serde",
 ]
@@ -4371,7 +4371,7 @@ dependencies = [
  "nix 0.26.4",
  "once_cell",
  "parking_lot",
- "prost",
+ "prost 0.11.9",
  "prost-build",
  "prost-derive",
  "protobuf",
@@ -4539,6 +4539,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "prost"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4fdd22f3b9c31b53c060df4a0613a1c7f062d4115a2b984dd15b1858f7e340d"
+dependencies = [
+ "bytes",
+]
+
+[[package]]
 name = "prost-build"
 version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4552,7 +4561,7 @@ dependencies = [
  "multimap",
  "petgraph",
  "prettyplease",
- "prost",
+ "prost 0.11.9",
  "prost-types",
  "regex",
  "syn 1.0.109",
@@ -4579,7 +4588,7 @@ version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "213622a1460818959ac1181aaeb2dc9c7f63df720db7d788b3e24eacd1983e13"
 dependencies = [
- "prost",
+ "prost 0.11.9",
 ]
 
 [[package]]
@@ -4624,7 +4633,7 @@ dependencies = [
  "parquet_file",
  "pin-project",
  "predicate",
- "prost",
+ "prost 0.11.9",
  "rand",
  "schema",
  "service_common",
@@ -4632,7 +4641,7 @@ dependencies = [
  "test_helpers",
  "tokio",
  "tokio-util",
- "tonic",
+ "tonic 0.10.1",
  "trace",
  "trace_http",
  "tracker",
@@ -4922,7 +4931,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
- "tonic",
+ "tonic 0.10.1",
  "trace",
  "trace_http",
  "workspace-hack",
@@ -5015,7 +5024,7 @@ checksum = "cd8d6c9f025a446bc4d18ad9632e69aec8f287aa84499ee335599fabd20c3fd8"
 dependencies = [
  "log",
  "ring",
- "rustls-webpki 0.101.4",
+ "rustls-webpki",
  "sct",
 ]
 
@@ -5026,16 +5035,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d3987094b1d07b653b7dfdc3f70ce9a1da9c51ac18c1b06b662e4f9a0e9f4b2"
 dependencies = [
  "base64 0.21.4",
-]
-
-[[package]]
-name = "rustls-webpki"
-version = "0.100.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e98ff011474fa39949b7e5c0428f9b4937eda7da7848bbb947786b7be0b27dab"
-dependencies = [
- "ring",
- "untrusted",
 ]
 
 [[package]]
@@ -5197,7 +5196,7 @@ dependencies = [
  "metric",
  "parking_lot",
  "predicate",
- "tonic",
+ "tonic 0.10.1",
  "trace",
  "tracker",
  "workspace-hack",
@@ -5213,7 +5212,7 @@ dependencies = [
  "metric",
  "observability_deps",
  "tokio",
- "tonic",
+ "tonic 0.10.1",
  "uuid",
  "workspace-hack",
 ]
@@ -5236,14 +5235,14 @@ dependencies = [
  "iox_query",
  "metric",
  "observability_deps",
- "prost",
+ "prost 0.11.9",
  "serde",
  "serde_json",
  "service_common",
  "snafu",
  "test_helpers",
  "tokio",
- "tonic",
+ "tonic 0.10.1",
  "trace",
  "trace_http",
  "tracker",
@@ -5268,7 +5267,7 @@ dependencies = [
  "parking_lot",
  "pin-project",
  "predicate",
- "prost",
+ "prost 0.11.9",
  "query_functions",
  "regex",
  "schema",
@@ -5280,7 +5279,7 @@ dependencies = [
  "test_helpers",
  "tokio",
  "tokio-stream",
- "tonic",
+ "tonic 0.10.1",
  "trace",
  "trace_http",
  "tracker",
@@ -5299,7 +5298,7 @@ dependencies = [
  "observability_deps",
  "paste",
  "tokio",
- "tonic",
+ "tonic 0.10.1",
  "workspace-hack",
 ]
 
@@ -5317,7 +5316,7 @@ dependencies = [
  "observability_deps",
  "parquet_file",
  "tokio",
- "tonic",
+ "tonic 0.10.1",
  "uuid",
  "workspace-hack",
 ]
@@ -5332,7 +5331,7 @@ dependencies = [
  "iox_catalog",
  "observability_deps",
  "tokio",
- "tonic",
+ "tonic 0.10.1",
  "workspace-hack",
 ]
 
@@ -5346,7 +5345,7 @@ dependencies = [
  "metric",
  "observability_deps",
  "tokio",
- "tonic",
+ "tonic 0.10.1",
  "workspace-hack",
 ]
 
@@ -5356,7 +5355,7 @@ version = "0.1.0"
 dependencies = [
  "generated_types",
  "observability_deps",
- "tonic",
+ "tonic 0.10.1",
  "workspace-hack",
 ]
 
@@ -5995,7 +5994,7 @@ dependencies = [
  "observability_deps",
  "once_cell",
  "parking_lot",
- "prost",
+ "prost 0.11.9",
  "rand",
  "regex",
  "reqwest",
@@ -6005,7 +6004,7 @@ dependencies = [
  "test_helpers",
  "tokio",
  "tokio-util",
- "tonic",
+ "tonic 0.10.1",
  "workspace-hack",
 ]
 
@@ -6243,7 +6242,6 @@ version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3082666a3a6433f7f511c7192923fa1fe07c69332d3c6a2e6bb040b569199d5a"
 dependencies = [
- "async-stream",
  "async-trait",
  "axum",
  "base64 0.21.4",
@@ -6257,7 +6255,35 @@ dependencies = [
  "hyper-timeout",
  "percent-encoding",
  "pin-project",
- "prost",
+ "prost 0.11.9",
+ "tokio",
+ "tokio-stream",
+ "tower",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "tonic"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14c00bc15e49625f3d2f20b17082601e5e17cf27ead69e805174026c194b6664"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "axum",
+ "base64 0.21.4",
+ "bytes",
+ "h2",
+ "http",
+ "http-body",
+ "hyper",
+ "hyper-timeout",
+ "percent-encoding",
+ "pin-project",
+ "prost 0.12.1",
+ "rustls",
  "rustls-pemfile",
  "tokio",
  "tokio-rustls",
@@ -6266,7 +6292,7 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
- "webpki-roots 0.23.1",
+ "webpki-roots 0.25.2",
 ]
 
 [[package]]
@@ -6289,10 +6315,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "080964d45894b90273d2b1dd755fdd114560db8636bb41cea615213c45043c4d"
 dependencies = [
  "async-stream",
- "prost",
+ "prost 0.11.9",
  "tokio",
  "tokio-stream",
- "tonic",
+ "tonic 0.9.2",
 ]
 
 [[package]]
@@ -6301,11 +6327,11 @@ version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0543d7092032041fbeac1f2c84304537553421a11a623c2301b12ef0264862c7"
 dependencies = [
- "prost",
+ "prost 0.11.9",
  "prost-types",
  "tokio",
  "tokio-stream",
- "tonic",
+ "tonic 0.9.2",
 ]
 
 [[package]]
@@ -6666,7 +6692,7 @@ dependencies = [
  "mutable_batch_pb",
  "observability_deps",
  "parking_lot",
- "prost",
+ "prost 0.11.9",
  "snafu",
  "snap",
  "test_helpers",
@@ -6810,20 +6836,11 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "0.23.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b03058f88386e5ff5310d9111d53f48b17d732b401aeb83a8d5190f2ac459338"
-dependencies = [
- "rustls-webpki 0.100.2",
-]
-
-[[package]]
-name = "webpki-roots"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b291546d5d9d1eab74f069c77749f2cb8504a12caa20f0f2de93ddbf6f411888"
 dependencies = [
- "rustls-webpki 0.101.4",
+ "rustls-webpki",
 ]
 
 [[package]]
@@ -7091,7 +7108,7 @@ dependencies = [
  "phf_shared",
  "predicates",
  "proptest",
- "prost",
+ "prost 0.11.9",
  "prost-types",
  "rand",
  "rand_core",
@@ -7119,7 +7136,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
- "tonic",
+ "tonic 0.10.1",
  "tower",
  "tracing",
  "tracing-core",
