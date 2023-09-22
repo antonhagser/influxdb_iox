@@ -7136,7 +7136,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
- "tonic 0.10.1",
+ "tonic 0.9.2",
  "tower",
  "tracing",
  "tracing-core",
