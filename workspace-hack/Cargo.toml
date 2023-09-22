@@ -44,7 +44,8 @@ futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 getrandom = { version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.14", features = ["raw"] }
 indexmap = { version = "2" }
-itertools = { version = "0.10" }
+itertools-93f6ce9d446188ac = { package = "itertools", version = "0.10" }
+itertools-a6292c17cd707f01 = { package = "itertools", version = "0.11" }
 libc = { version = "0.2", features = ["extra_traits"] }
 lock_api = { version = "0.4", features = ["arc_lock"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
@@ -61,7 +62,7 @@ phf_shared = { version = "0.11" }
 predicates = { version = "3" }
 proptest = { version = "1", default-features = false, features = ["std"] }
 prost = { version = "0.11" }
-prost-types = { version = "0.12" }
+prost-types = { version = "0.11" }
 rand = { version = "0.8", features = ["small_rng"] }
 rand_core = { version = "0.6", default-features = false, features = ["std"] }
 regex = { version = "1" }
@@ -115,7 +116,8 @@ getrandom = { version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.14", features = ["raw"] }
 heck = { version = "0.4", features = ["unicode"] }
 indexmap = { version = "2" }
-itertools = { version = "0.10" }
+itertools-93f6ce9d446188ac = { package = "itertools", version = "0.10" }
+itertools-a6292c17cd707f01 = { package = "itertools", version = "0.11" }
 libc = { version = "0.2", features = ["extra_traits"] }
 lock_api = { version = "0.4", features = ["arc_lock"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
@@ -128,7 +130,7 @@ parking_lot = { version = "0.12", features = ["arc_lock"] }
 petgraph = { version = "0.6" }
 phf_shared = { version = "0.11" }
 prost = { version = "0.11" }
-prost-types = { version = "0.12" }
+prost-types = { version = "0.11" }
 rand = { version = "0.8", features = ["small_rng"] }
 rand_core = { version = "0.6", default-features = false, features = ["std"] }
 regex = { version = "1" }
